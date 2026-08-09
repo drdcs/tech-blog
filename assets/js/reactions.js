@@ -2,7 +2,7 @@
  * Article reactions — GitHub Pages compatible
  *
  * Without backend (default):
- *   Saves your vote in localStorage (per browser). No global counts.
+ *   Saves your vote + counts in localStorage (per browser).
  *
  * With Supabase (optional global counts):
  *   Copy reactions-config.example.js → reactions-config.js
@@ -10,22 +10,46 @@
  */
 (() => {
   const STORAGE_KEY = "techblog:reactions";
+  const EMPTY_COUNTS = () => ({ like: 0, dislike: 0, love: 0 });
 
   const loadConfig = () => {
     if (window.REACTIONS_CONFIG?.enabled) return window.REACTIONS_CONFIG;
     return null;
   };
 
+  const normalizeEntry = (value) => {
+    if (!value) return { vote: null, counts: EMPTY_COUNTS() };
+    if (typeof value === "string") {
+      const counts = EMPTY_COUNTS();
+      if (["like", "dislike", "love"].includes(value)) counts[value] = 1;
+      return { vote: value, counts };
+    }
+    return {
+      vote: value.vote || null,
+      counts: { ...EMPTY_COUNTS(), ...(value.counts || {}) },
+    };
+  };
+
   const readLocal = () => {
     try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      const data = {};
+      for (const [articleId, value] of Object.entries(raw)) {
+        data[articleId] = normalizeEntry(value);
+      }
+      return data;
     } catch {
       return {};
     }
   };
 
   const writeLocal = (data) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const formatCounts = (counts) => {
@@ -45,7 +69,7 @@
     });
     if (!res.ok) return null;
     const rows = await res.json();
-    if (!rows.length) return { like: 0, dislike: 0, love: 0 };
+    if (!rows.length) return EMPTY_COUNTS();
     return formatCounts({
       like: rows[0].like_count,
       dislike: rows[0].dislike_count,
@@ -76,17 +100,18 @@
     });
 
     const note = bar.querySelector(".reactions-note");
-    if (note) {
-      if (userVote) {
-        note.textContent = loadConfig()
-          ? "Thanks — your vote is counted."
-          : "Thanks — saved on this device.";
-      } else {
-        note.textContent = loadConfig()
-          ? "Was this helpful?"
-          : "Was this helpful? (saved locally on this device)";
-      }
+    if (!note) return;
+
+    if (userVote) {
+      note.textContent = loadConfig()
+        ? "Thanks — your vote is counted."
+        : "Thanks — saved on this device.";
+      return;
     }
+
+    note.textContent = loadConfig()
+      ? "Was this helpful?"
+      : "Was this helpful? (saved locally on this device)";
   }
 
   async function initBar(bar) {
@@ -95,9 +120,11 @@
 
     const config = loadConfig();
     const local = readLocal();
-    const userVote = local[articleId] || null;
+    const entry = local[articleId] || { vote: null, counts: EMPTY_COUNTS() };
+    const userVote = entry.vote;
 
-    let counts = { like: 0, dislike: 0, love: 0 };
+    let counts = { ...entry.counts };
+
     if (config) {
       const remote = await fetchSupabaseCounts(config, articleId);
       if (remote) counts = remote;
@@ -112,11 +139,17 @@
       const reaction = btn.dataset.reaction;
       if (!["like", "dislike", "love"].includes(reaction)) return;
 
-      const prev = local[articleId];
+      const current = local[articleId] || { vote: null, counts: EMPTY_COUNTS() };
+      const prev = current.vote;
       if (prev === reaction) return;
 
-      local[articleId] = reaction;
+      if (prev && current.counts[prev] > 0) current.counts[prev] -= 1;
+      current.counts[reaction] = (current.counts[reaction] || 0) + 1;
+      current.vote = reaction;
+      local[articleId] = current;
       writeLocal(local);
+
+      let nextCounts = { ...current.counts };
 
       if (config) {
         bar.classList.add("is-loading");
@@ -124,17 +157,21 @@
         bar.classList.remove("is-loading");
         if (ok) {
           const remote = await fetchSupabaseCounts(config, articleId);
-          if (remote) counts = remote;
+          if (remote) nextCounts = remote;
         }
-      } else {
-        // Local-only optimistic bump (visible only to this user)
-        if (prev && counts[prev] > 0) counts[prev] -= 1;
-        counts[reaction] = (counts[reaction] || 0) + 1;
       }
 
-      updateUI(bar, counts, reaction);
+      updateUI(bar, nextCounts, reaction);
     });
   }
 
-  document.querySelectorAll("[data-reactions]").forEach(initBar);
+  function boot() {
+    document.querySelectorAll("[data-reactions]").forEach(initBar);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
 })();
