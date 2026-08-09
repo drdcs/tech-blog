@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>The Thin Pipe — Kafka to BigQuery on Storage Write API — Tech Blog by Dip</title>
-  <meta name="description" content="Build a memory-efficient Kafka to BigQuery pipeline with Storage Write API, gRPC protobuf, Kubernetes scaling, partitioning, and controlled staleness — without Spark or Flink tax." />
+  <title>Consuming Streaming Data in BigQuery at Scale — Tech Blog by Dip</title>
+  <meta name="description" content="Consume Kafka streams into BigQuery at scale with Storage Write API, gRPC protobuf, Kubernetes scaling, partitioning, and controlled staleness — without Spark or Flink tax." />
   <meta name="theme-color" content="#f5f7f6" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -88,7 +88,7 @@
   <header class="site-header">
     <div class="wrap nav">
       <a class="brand" href="../../../" aria-label="Tech Blog by Dip home">
-        <span class="brand-mark">Tech Blog</span>
+        <span class="brand-mark">Tech Blog <span class="brand-emoji" aria-hidden="true">✦</span></span>
         <span class="brand-tag">by Dip</span>
       </a>
       <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
@@ -104,13 +104,14 @@
   <main>
     <header class="article-hero">
       <div class="prose-wrap">
+        <div class="article-hero-emoji" aria-hidden="true">📊 ⚡ ☸️</div>
         <div class="article-meta">
-          <span class="pill">Data Platforms</span>
-          <span>Streaming</span>
-          <span>26 min read</span>
-          <span>Aug 2026</span>
+          <span class="pill">📊 Data Platforms</span>
+          <span>🌊 Streaming</span>
+          <span>⏱️ 26 min read</span>
+          <span>📅 Aug 2026</span>
         </div>
-        <h1 class="article-title">The Thin Pipe</h1>
+        <h1 class="article-title">Consuming Streaming Data in BigQuery at Scale</h1>
         <p class="article-dek">
           Kafka to BigQuery on the Storage Write API — a memory-efficient, gRPC-native data flow you can scale on Kubernetes without paying the Spark or Flink cluster tax.
         </p>
@@ -119,24 +120,24 @@
 
     <article class="article-body prose-wrap">
       <nav class="toc" aria-label="Table of contents">
-        <h2>On this page</h2>
+        <h2>📑 On this page</h2>
         <ol>
-          <li><a href="#thesis">The thesis</a></li>
-          <li><a href="#history">A short history of Storage Write API</a></li>
-          <li><a href="#architecture">Thin-pipe architecture</a></li>
-          <li><a href="#grpc-proto">gRPC &amp; protobuf</a></li>
-          <li><a href="#loader">Destination loader (BigQuery)</a></li>
-          <li><a href="#streams">Write stream types &amp; upserts</a></li>
-          <li><a href="#k8s">Scale on Kubernetes</a></li>
-          <li><a href="#why-not-spark">Why not Spark / Flink?</a></li>
-          <li><a href="#code">Code sketch (Python)</a></li>
-          <li><a href="#benchmarks">Benchmarks</a></li>
-          <li><a href="#partition-staleness">Partitioning &amp; staleness</a></li>
+          <li><a href="#thesis">💡 The thesis</a></li>
+          <li><a href="#history">📜 A short history of Storage Write API</a></li>
+          <li><a href="#architecture">🏗️ Streaming pipeline architecture</a></li>
+          <li><a href="#grpc-proto">⚡ gRPC &amp; protobuf</a></li>
+          <li><a href="#loader">🎯 Destination loader (BigQuery)</a></li>
+          <li><a href="#streams">🔀 Write stream types &amp; upserts</a></li>
+          <li><a href="#k8s">☸️ Scale on Kubernetes</a></li>
+          <li><a href="#why-not-spark">💸 Why not Spark / Flink?</a></li>
+          <li><a href="#code">🐍 Code sketch (Python)</a></li>
+          <li><a href="#benchmarks">📈 Benchmarks</a></li>
+          <li><a href="#partition-staleness">⏳ Partitioning &amp; staleness</a></li>
         </ol>
       </nav>
 
       <section id="thesis">
-        <h2>1. The thesis</h2>
+        <h2>💡 1. The thesis</h2>
         <p>
           Most Kafka → warehouse pipelines are overbuilt. Teams reach for Spark Structured Streaming or Flink because those tools are excellent at <em>stateful</em> stream processing —
           windows, joins, exactly-once across complex DAGs. But a large class of workloads is simpler:
@@ -176,7 +177,7 @@ flowchart LR
       </section>
 
       <section id="history">
-        <h2>2. A short history of the BigQuery Storage Write API</h2>
+        <h2>📜 2. A short history of the BigQuery Storage Write API</h2>
         <p>
           BigQuery’s write story evolved in three eras:
         </p>
@@ -221,7 +222,7 @@ timeline
       </section>
 
       <section id="architecture">
-        <h2>3. Thin-pipe architecture</h2>
+        <h2>🏗️ 3. Streaming pipeline architecture</h2>
         <p>
           The pipeline is deliberately boring. Kafka holds the durable log. Workers are stateless besides consumer offsets and a small append buffer.
           BigQuery is the analytical destination. No shuffle, no RocksDB state backend, no checkpoint coordination service.
@@ -279,7 +280,7 @@ flowchart TB
       </section>
 
       <section id="grpc-proto">
-        <h2>4. gRPC &amp; protobuf on the wire</h2>
+        <h2>⚡ 4. gRPC &amp; protobuf on the wire</h2>
         <p>
           Storage Write speaks <strong>gRPC</strong>. Workers open a bidirectional stream and call <code>AppendRows</code> with serialized payloads.
           Compared with REST JSON inserts you avoid: text encoding bloat, repeated schema keys per row, and HTTP/1 chatty connection behavior.
@@ -327,7 +328,7 @@ message CheckoutEvent {
       </section>
 
       <section id="loader">
-        <h2>5. Destination loader (BigQuery)</h2>
+        <h2>🎯 5. Destination loader (BigQuery)</h2>
         <p>
           Think of the worker’s BigQuery side as a <strong>destination loader</strong>: a small module that owns stream lifecycle, retries, and backpressure — not business logic.
           Responsibilities:
@@ -368,7 +369,7 @@ flowchart TB
       </section>
 
       <section id="streams">
-        <h2>6. Write stream types &amp; how upserts work</h2>
+        <h2>🔀 6. Write stream types &amp; how upserts work</h2>
         <p>
           The Storage Write API is stream-oriented. Before you call <code>AppendRows</code>, you choose (or inherit) a <strong>write stream type</strong>.
           That choice controls when rows become queryable and how you get exactly-once / atomic visibility.
@@ -493,7 +494,7 @@ row = {
       </section>
 
       <section id="k8s">
-        <h2>7. Scale with Kubernetes</h2>
+        <h2>☸️ 7. Scale with Kubernetes</h2>
         <p>
           Horizontal scale maps cleanly to Kafka partitions. Run a Deployment (or StatefulSet) of write workers; each consumer instance in the group receives a subset of partitions.
           Autoscale on lag (Kafka consumer group lag exporter → HPA / KEDA), not on CPU alone — ingestion is often network and gRPC bound.
@@ -530,7 +531,7 @@ flowchart LR
       </section>
 
       <section id="why-not-spark">
-        <h2>8. Why Spark / Flink is not cost-efficient here</h2>
+        <h2>💸 8. Why Spark / Flink is not cost-efficient here</h2>
         <p>
           Spark and Flink shine when you need distributed state: session windows, stream–stream joins, CEP, large keyed aggregations.
           For append-only Kafka → BigQuery, you still pay for:
@@ -569,7 +570,7 @@ flowchart LR
       </section>
 
       <section id="code">
-        <h2>9. Code sketch (Python)</h2>
+        <h2>🐍 9. Code sketch (Python)</h2>
         <p>
           Illustrative hot path using <code>confluent-kafka</code> and the BigQuery Storage Write client patterns.
           Production code should add metrics, poison handling, and stream recreation on failed appends.
@@ -709,7 +710,7 @@ spec:
       </section>
 
       <section id="benchmarks">
-        <h2>10. Benchmark numbers (representative lab)</h2>
+        <h2>📈 10. Benchmark numbers (representative lab)</h2>
         <p>
           Numbers below are <em>order-of-magnitude lab figures</em> for a ~400-byte average event, single region, committed-style append path.
           Use them for sizing intuition — re-bench on your schema and quota.
@@ -792,7 +793,7 @@ flowchart TB
       </section>
 
       <section id="partition-staleness">
-        <h2>11. Partitioning &amp; staleness — how to set it, why it matters</h2>
+        <h2>⏳ 11. Partitioning &amp; staleness — how to set it, why it matters</h2>
 
         <h3>Partitioning the destination</h3>
         <p>
@@ -972,7 +973,7 @@ flowchart LR
           At high scale, staleness is not “bad data” — it is how you keep time-to-resolve predictable.
         </div>
 
-        <h2>Closing</h2>
+        <h2>✨ Closing</h2>
         <p>
           The thin pipe is a bet on the right tool for Kafka drains:
           protobuf over gRPC, the right Storage Write stream type (default / committed / pending / buffered), CDC upserts when entities mutate,

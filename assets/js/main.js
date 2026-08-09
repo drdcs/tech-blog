@@ -25,7 +25,20 @@
     });
   }
 
+  document.querySelectorAll(
+    ".article-body section, .article-body .diagram-block, .article-body .hld-panel-grid, .article-body .hld-boe, .article-body .callout, .article-body .compare-grid, .article-hero .prose-wrap"
+  ).forEach((el) => el.classList.add("reveal"));
+
   const revealTargets = document.querySelectorAll(".reveal, .diagram-block");
+  revealTargets.forEach((el, i) => {
+    if (!el.style.transitionDelay) {
+      const parent = el.parentElement;
+      const siblings = parent ? [...parent.querySelectorAll(".reveal")].indexOf(el) : i;
+      const delay = siblings >= 0 ? siblings * 90 : i * 90;
+      el.style.transitionDelay = `${delay}ms`;
+    }
+  });
+
   if ("IntersectionObserver" in window) {
     const io = new IntersectionObserver(
       (entries) => {

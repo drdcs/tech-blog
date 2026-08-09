@@ -89,7 +89,7 @@
   <header class="site-header">
     <div class="wrap nav">
       <a class="brand" href="../../../" aria-label="Tech Blog by Dip home">
-        <span class="brand-mark">Tech Blog</span>
+        <span class="brand-mark">Tech Blog <span class="brand-emoji" aria-hidden="true">✦</span></span>
         <span class="brand-tag">by Dip</span>
       </a>
       <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
@@ -105,11 +105,12 @@
   <main>
     <header class="article-hero">
       <div class="prose-wrap">
+        <div class="article-hero-emoji" aria-hidden="true">🤖 🔌 👻</div>
         <div class="article-meta">
-          <span class="pill">AI Systems</span>
-          <span>Architecture</span>
-          <span>24 min read</span>
-          <span>Aug 2026</span>
+          <span class="pill">🧠 AI Systems</span>
+          <span>🏛️ Architecture</span>
+          <span>⏱️ 24 min read</span>
+          <span>📅 Aug 2026</span>
         </div>
         <h1 class="article-title">MCP, Agents &amp; Headless Architecture</h1>
         <p class="article-dek">
@@ -120,22 +121,22 @@
 
     <article class="article-body prose-wrap">
       <nav class="toc" aria-label="Table of contents">
-        <h2>On this page</h2>
+        <h2>📑 On this page</h2>
         <ol>
-          <li><a href="#mental-model">Mental model</a></li>
-          <li><a href="#what-is-mcp">What is MCP?</a></li>
-          <li><a href="#what-is-agent">What is an Agent?</a></li>
-          <li><a href="#mcp-vs-agent">MCP vs Agent</a></li>
-          <li><a href="#headless">Headless architecture</a></li>
-          <li><a href="#registries">MCP &amp; Agent registries</a></li>
-          <li><a href="#app-interaction">How apps interact</a></li>
-          <li><a href="#superagent">Enterprise Superagent</a></li>
-          <li><a href="#decision">Decision matrix</a></li>
+          <li><a href="#mental-model">🧠 Mental model</a></li>
+          <li><a href="#what-is-mcp">🔌 What is MCP?</a></li>
+          <li><a href="#what-is-agent">🤖 What is an Agent?</a></li>
+          <li><a href="#mcp-vs-agent">⚖️ MCP vs Agent</a></li>
+          <li><a href="#headless">👻 Headless architecture</a></li>
+          <li><a href="#registries">📋 MCP &amp; Agent registries</a></li>
+          <li><a href="#app-interaction">🔄 How apps interact</a></li>
+          <li><a href="#superagent">🏢 Enterprise Superagent</a></li>
+          <li><a href="#decision">🎯 Decision matrix</a></li>
         </ol>
       </nav>
 
       <section id="mental-model">
-        <h2>1. Mental model</h2>
+        <h2>🧠 1. Mental model</h2>
         <p>
           Modern AI products fail when they confuse <em>capability access</em> with <em>autonomous decision-making</em>.
           MCP is a protocol for exposing tools, data, and prompts to a model client in a standardized way.
@@ -190,7 +191,7 @@ flowchart TB
       </section>
 
       <section id="what-is-mcp">
-        <h2>2. What is MCP?</h2>
+        <h2>🔌 2. What is MCP?</h2>
         <p>
           <strong>Model Context Protocol (MCP)</strong> is an open protocol that standardizes how applications provide context to large language models.
           Instead of every host inventing its own plugin format, MCP defines a client–server contract for:
@@ -238,7 +239,7 @@ sequenceDiagram
       </section>
 
       <section id="what-is-agent">
-        <h2>3. What is an Agent?</h2>
+        <h2>🤖 3. What is an Agent?</h2>
         <p>
           An <strong>agent</strong> is a goal-directed control loop around a model. Typical steps:
         </p>
@@ -277,7 +278,7 @@ stateDiagram-v2
       </section>
 
       <section id="mcp-vs-agent">
-        <h2>4. When to use MCP vs Agent</h2>
+        <h2>⚖️ 4. When to use MCP vs Agent</h2>
         <p>
           They are not competitors. They sit on different layers. The real design question is:
           <em>Does this feature need standardized capability access, autonomous orchestration, or both?</em>
@@ -344,7 +345,7 @@ flowchart TD
       </section>
 
       <section id="headless">
-        <h2>5. How headless architecture works</h2>
+        <h2>👻 5. How headless architecture works</h2>
         <p>
           A <strong>headless</strong> AI architecture separates the experience layer (web, mobile, Slack, IDE) from the intelligence layer (agents, models, tools).
           The “head” is any client; the “body” is a durable backend that owns sessions, memory, tool credentials, and audit logs.
@@ -440,7 +441,7 @@ sequenceDiagram
       </section>
 
       <section id="registries">
-        <h2>6. MCP registry &amp; Agent registry</h2>
+        <h2>📋 6. MCP registry &amp; Agent registry</h2>
         <p>
           As soon as you have more than a handful of tools or specialists, ad-hoc config files rot.
           Registries turn “who can do what” into queryable infrastructure.
@@ -517,7 +518,7 @@ flowchart TB
       </section>
 
       <section id="app-interaction">
-        <h2>7. How the app interacts with Agent vs MCP</h2>
+        <h2>🔄 7. How the app interacts with Agent vs MCP</h2>
         <p>
           From an application developer’s point of view, the APIs feel different because the abstraction level is different.
         </p>
@@ -590,7 +591,7 @@ flowchart TB
       </section>
 
       <section id="superagent">
-        <h2>8. How an enterprise uses a Superagent</h2>
+        <h2>🏢 8. How an enterprise uses a Superagent</h2>
         <p>
           In a large company, every domain team eventually builds its own specialist agent — finance reconciliation, SRE incident response, HR policy Q&amp;A, data platform ops.
           If every product surface must know which specialist to call, the org recreates a mesh of brittle integrations.
@@ -815,7 +816,7 @@ stateDiagram-v2
       </section>
 
       <section id="decision">
-        <h2>9. Decision matrix</h2>
+        <h2>🎯 9. Decision matrix</h2>
         <table class="matrix">
           <thead>
             <tr>
@@ -901,7 +902,7 @@ flowchart LR
           </div>
         </div>
 
-        <h2>Closing</h2>
+        <h2>✨ Closing</h2>
         <p>
           MCP is how you expose capabilities. Agents are how you sequence them toward goals.
           Headless architecture is how you ship that intelligence to every surface without trapping it in a single UI.

@@ -15,7 +15,7 @@
   <header class="site-header">
     <div class="wrap nav">
       <a class="brand" href="/" aria-label="Tech Blog by Dip home">
-        <span class="brand-mark">Tech Blog</span>
+        <span class="brand-mark">Tech Blog <span class="brand-emoji" aria-hidden="true">✦</span></span>
         <span class="brand-tag">by Dip</span>
       </a>
       <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
@@ -33,15 +33,16 @@
 
   <main>
     <section class="hero wrap">
-      <div class="hero-content">
+      <div class="hero-content reveal">
+        <div class="hero-emoji" aria-hidden="true">⚡ 🛠️ 📐</div>
         <h1 class="hero-brand">Tech Blog by Dip</h1>
         <p class="hero-headline">Architecture notes from the trenches.</p>
         <p class="hero-lede">
           Essays on distributed systems, AI runtimes, data platforms, and ML at scale — constraints, trade-offs, and what actually ships.
         </p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="topics/data/thin-pipe-kafka-bigquery/">Read: The Thin Pipe</a>
-          <a class="btn btn-ghost" href="#topics">Browse topics</a>
+          <a class="btn btn-primary" href="topics/hld/distributed-scheduler/">🏗️ Read: Job Scheduler HLD</a>
+          <a class="btn btn-ghost" href="#topics">🗂️ Browse topics</a>
         </div>
       </div>
     </section>
@@ -49,7 +50,7 @@
     <section class="section wrap" id="featured">
       <div class="section-head reveal">
         <div>
-          <p class="section-kicker">Latest essays</p>
+          <p class="section-kicker">✨ Latest essays</p>
           <h2 class="section-title">Start here</h2>
         </div>
         <p class="section-note">Streaming pipes and AI control planes — architecture notes for production engineers.</p>
@@ -57,12 +58,12 @@
 
       <article class="featured reveal">
         <div>
-          <p class="featured-meta">HLD · Distributed Systems · 28 min read · Aug 2026</p>
+          <p class="featured-meta">🏗️ HLD · Distributed Systems · 28 min read · Aug 2026</p>
           <h2><a href="topics/hld/distributed-scheduler/">Design a Distributed Job Scheduler</a></h2>
           <p class="featured-lede">
             Distributed job scheduler HLD — lease-based dispatch, failure recovery, shard routing, and the control-plane / data-plane split.
           </p>
-          <a class="btn btn-ghost" href="topics/hld/distributed-scheduler/">Open the essay →</a>
+          <a class="btn btn-ghost" href="topics/hld/distributed-scheduler/">Open the essay ✨</a>
         </div>
         <div class="diagram-preview" aria-hidden="true">
           <svg viewBox="0 0 520 280" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -84,12 +85,12 @@
 
       <article class="featured reveal" style="border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 2rem;">
         <div>
-          <p class="featured-meta">Data · Streaming · 26 min read · Aug 2026</p>
-          <h2><a href="topics/data/thin-pipe-kafka-bigquery/">The Thin Pipe</a></h2>
+          <p class="featured-meta">📊 Data · Streaming · 26 min read · Aug 2026</p>
+          <h2><a href="topics/data/thin-pipe-kafka-bigquery/">Consuming Streaming Data in BigQuery at Scale</a></h2>
           <p class="featured-lede">
             Kafka to BigQuery on Storage Write API — gRPC protobuf, Kubernetes scale-out, and why Spark/Flink is the wrong cost model for append-only drains.
           </p>
-          <a class="btn btn-ghost" href="topics/data/thin-pipe-kafka-bigquery/">Open the essay →</a>
+          <a class="btn btn-ghost" href="topics/data/thin-pipe-kafka-bigquery/">Open the essay 🚀</a>
         </div>
         <div class="diagram-preview" aria-hidden="true">
           <svg viewBox="0 0 520 280" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -111,12 +112,12 @@
 
       <article class="featured reveal" style="border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 2rem;">
         <div>
-          <p class="featured-meta">AI · Architecture · 24 min read · Aug 2026</p>
+          <p class="featured-meta">🧠 AI · Architecture · 24 min read · Aug 2026</p>
           <h2><a href="topics/ai/mcp-vs-agents/">MCP, Agents &amp; Headless Architecture</a></h2>
           <p class="featured-lede">
             When should your app speak MCP, and when should it talk to an agent? How do enterprise Superagents route across team agents and registries?
           </p>
-          <a class="btn btn-ghost" href="topics/ai/mcp-vs-agents/">Open the essay →</a>
+          <a class="btn btn-ghost" href="topics/ai/mcp-vs-agents/">Open the essay 🤖</a>
         </div>
         <div class="diagram-preview" aria-hidden="true">
           <svg viewBox="0 0 520 280" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -141,7 +142,7 @@
     <section class="section wrap" id="topics">
       <div class="section-head reveal">
         <div>
-          <p class="section-kicker">Topic map</p>
+          <p class="section-kicker">🧭 Topic map</p>
           <h2 class="section-title">What we write about</h2>
         </div>
         <p class="section-note">Four lanes. One compass: clarity under real production constraints.</p>
@@ -149,7 +150,7 @@
 
       <div class="topic-lanes">
         <a class="topic-lane reveal" href="topics/ai/">
-          <span class="topic-code">01 / AI</span>
+          <span class="topic-code"><span class="topic-emoji">🤖</span> 01 / AI</span>
           <div>
             <h3>AI Systems</h3>
             <p>Agents, MCP, Superagents, registries, and headless runtimes.</p>
@@ -157,7 +158,7 @@
           <span class="topic-arrow">→</span>
         </a>
         <a class="topic-lane reveal" href="topics/hld/">
-          <span class="topic-code">02 / HLD</span>
+          <span class="topic-code"><span class="topic-emoji">🏗️</span> 02 / HLD</span>
           <div>
             <h3>High-Level Design</h3>
             <p>Service boundaries, consistency, queues, caching, and failure domains.</p>
@@ -165,7 +166,7 @@
           <span class="topic-arrow">→</span>
         </a>
         <a class="topic-lane reveal" href="topics/lld/">
-          <span class="topic-code">03 / LLD</span>
+          <span class="topic-code"><span class="topic-emoji">⚙️</span> 03 / LLD</span>
           <div>
             <h3>Low-Level Design</h3>
             <p>Object models, concurrency, APIs, state machines, and code-level patterns.</p>
@@ -173,7 +174,7 @@
           <span class="topic-arrow">→</span>
         </a>
         <a class="topic-lane reveal" href="topics/data/">
-          <span class="topic-code">04 / DATA</span>
+          <span class="topic-code"><span class="topic-emoji">📊</span> 04 / DATA</span>
           <div>
             <h3>Data Platforms</h3>
             <p>Kafka pipes, Storage Write API, partitioning, and controlled staleness.</p>
@@ -188,7 +189,7 @@
     <div class="wrap footer-grid">
       <div>
         <div class="footer-brand">Tech Blog by Dip</div>
-        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span></p>
+        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span> 🚀</p>
       </div>
       <p class="footer-copy">Deployed on GitHub Pages</p>
     </div>
