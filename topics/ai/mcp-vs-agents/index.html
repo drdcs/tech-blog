@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MCP, Agents &amp; Headless Architecture — Tech Blog by Dip</title>
+  <meta name="description" content="When to use MCP vs Agents, how headless architecture works, MCP and agent registries, and how apps interact with each layer." />
+  <meta name="theme-color" content="#f5f7f6" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../../assets/css/styles.css" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      securityLevel: "loose",
+      flowchart: {
+        curve: "basis",
+        padding: 16,
+        htmlLabels: true,
+        nodeSpacing: 40,
+        rankSpacing: 50
+      },
+      sequence: {
+        actorMargin: 48,
+        mirrorActors: false,
+        bottomMarginAdjust: 8,
+        messageMargin: 40
+      },
+      themeVariables: {
+        darkMode: false,
+        background: "#ffffff",
+        primaryColor: "#ecfdf8",
+        primaryTextColor: "#14201b",
+        primaryBorderColor: "#0f766e",
+        secondaryColor: "#eff6ff",
+        secondaryTextColor: "#14201b",
+        secondaryBorderColor: "#0369a1",
+        tertiaryColor: "#f8fafc",
+        tertiaryTextColor: "#334155",
+        tertiaryBorderColor: "#64748b",
+        lineColor: "#5c6f66",
+        textColor: "#2a3a33",
+        mainBkg: "#ecfdf8",
+        nodeBorder: "#0f766e",
+        clusterBkg: "#f8fafc",
+        clusterBorder: "#cbd5e1",
+        titleColor: "#14201b",
+        actorBkg: "#ecfdf8",
+        actorBorder: "#0f766e",
+        actorTextColor: "#14201b",
+        actorLineColor: "#94a3b8",
+        signalColor: "#2a3a33",
+        signalTextColor: "#14201b",
+        labelBoxBkgColor: "#ffffff",
+        labelBoxBorderColor: "#0f766e",
+        labelTextColor: "#14201b",
+        loopTextColor: "#0369a1",
+        noteBkgColor: "#eff6ff",
+        noteTextColor: "#14201b",
+        noteBorderColor: "#0369a1",
+        activationBkgColor: "rgba(15,118,110,0.12)",
+        activationBorderColor: "#0f766e",
+        sequenceNumberColor: "#ffffff"
+      }
+    });
+
+    const run = async () => {
+      const nodes = document.querySelectorAll(".mermaid");
+      await mermaid.run({ nodes });
+      // Soft SVG edge animation after render
+      document.querySelectorAll(".diagram-frame svg .edgePath path, .diagram-frame svg .flowchart-link").forEach((path, i) => {
+        path.style.strokeDasharray = "8 6";
+        path.style.animation = `dash-flow ${1.4 + (i % 3) * 0.2}s linear infinite`;
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run);
+    } else {
+      run();
+    }
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="../../../" aria-label="Tech Blog by Dip home">
+        <span class="brand-mark">Tech Blog</span>
+        <span class="brand-tag">by Dip</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+      <ul class="nav-links">
+        <li><a href="../../../">Home</a></li>
+        <li><a href="../../../#topics">Topics</a></li>
+        <li><a href="../../../topics/ai/" aria-current="page">AI</a></li>
+        <li><a href="../../../topics/data/">Data</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <header class="article-hero">
+      <div class="prose-wrap">
+        <div class="article-meta">
+          <span class="pill">AI Systems</span>
+          <span>Architecture</span>
+          <span>24 min read</span>
+          <span>Aug 2026</span>
+        </div>
+        <h1 class="article-title">MCP, Agents &amp; Headless Architecture</h1>
+        <p class="article-dek">
+          A practical field guide to Model Context Protocol, agent runtimes, registries, enterprise superagents, and the headless pattern that keeps your product UI thin while intelligence lives elsewhere.
+        </p>
+      </div>
+    </header>
+
+    <article class="article-body prose-wrap">
+      <nav class="toc" aria-label="Table of contents">
+        <h2>On this page</h2>
+        <ol>
+          <li><a href="#mental-model">Mental model</a></li>
+          <li><a href="#what-is-mcp">What is MCP?</a></li>
+          <li><a href="#what-is-agent">What is an Agent?</a></li>
+          <li><a href="#mcp-vs-agent">MCP vs Agent</a></li>
+          <li><a href="#headless">Headless architecture</a></li>
+          <li><a href="#registries">MCP &amp; Agent registries</a></li>
+          <li><a href="#app-interaction">How apps interact</a></li>
+          <li><a href="#superagent">Enterprise Superagent</a></li>
+          <li><a href="#decision">Decision matrix</a></li>
+        </ol>
+      </nav>
+
+      <section id="mental-model">
+        <h2>1. Mental model</h2>
+        <p>
+          Modern AI products fail when they confuse <em>capability access</em> with <em>autonomous decision-making</em>.
+          MCP is a protocol for exposing tools, data, and prompts to a model client in a standardized way.
+          An agent is a runtime loop that plans, calls tools, observes results, and continues until a goal is met (or a budget is exhausted).
+        </p>
+        <p>
+          Think of MCP as the <strong>USB-C of context</strong> — a shared shape for plugging capabilities into any host.
+          Think of an agent as the <strong>operator</strong> that decides which plugs to use, in what order, and when to stop.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 01 — Separation of concerns</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  subgraph Product["Product Surface"]
+    UI["UI / API / CLI"]
+  end
+
+  subgraph Control["Control Plane"]
+    Agent["Agent Runtime<br/>plan · act · observe"]
+    Policy["Policies · Budgets · Auth"]
+  end
+
+  subgraph Capability["Capability Plane"]
+    MCP["MCP Client"]
+    Tools["Tools · Resources · Prompts"]
+  end
+
+  subgraph Discovery["Discovery Plane"]
+    AR["Agent Registry"]
+    MR["MCP Registry"]
+  end
+
+  UI --> Agent
+  Agent --> Policy
+  Agent --> MCP
+  MCP --> Tools
+  Agent -.-> AR
+  MCP -.-> MR
+
+  style UI fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Agent fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style Policy fill:#f8fafc,stroke:#0369a1,color:#334155
+  style MCP fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Tools fill:#f8fafc,stroke:#64748b,color:#334155
+  style AR fill:#eff6ff,stroke:#0369a1,color:#0369a1
+  style MR fill:#ecfdf8,stroke:#0f766e,color:#0f766e
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="what-is-mcp">
+        <h2>2. What is MCP?</h2>
+        <p>
+          <strong>Model Context Protocol (MCP)</strong> is an open protocol that standardizes how applications provide context to large language models.
+          Instead of every host inventing its own plugin format, MCP defines a client–server contract for:
+        </p>
+        <ul>
+          <li><strong>Tools</strong> — callable actions (create ticket, query DB, send email)</li>
+          <li><strong>Resources</strong> — readable context (files, schemas, docs, tickets)</li>
+          <li><strong>Prompts</strong> — reusable prompt templates exposed by servers</li>
+          <li><strong>Sampling / elicitation</strong> — optional flows for model-driven requests (depending on host support)</li>
+        </ul>
+        <p>
+          An <em>MCP server</em> wraps a system (GitHub, Postgres, Slack, your internal API).
+          An <em>MCP client</em> (inside an IDE, chat app, or agent host) connects to one or more servers, lists capabilities, and invokes them.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 02 — MCP request lifecycle</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant Host as Host App
+  participant Client as MCP Client
+  participant Server as MCP Server
+  participant System as Downstream System
+
+  Host->>Client: Connect / session start
+  Client->>Server: initialize
+  Server-->>Client: capabilities + serverInfo
+  Client->>Server: tools/list · resources/list
+  Server-->>Client: catalog of tools & resources
+  Host->>Client: Invoke tool (name + args)
+  Client->>Server: tools/call
+  Server->>System: Domain API call
+  System-->>Server: Result / error
+  Server-->>Client: structured tool result
+  Client-->>Host: Context for model / UI
+            </pre>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>Key insight.</strong> MCP does not decide <em>whether</em> to call a tool. It defines <em>how</em> tools and context are discovered and invoked safely and consistently.
+        </div>
+      </section>
+
+      <section id="what-is-agent">
+        <h2>3. What is an Agent?</h2>
+        <p>
+          An <strong>agent</strong> is a goal-directed control loop around a model. Typical steps:
+        </p>
+        <ol>
+          <li>Receive a goal and constraints (user intent, org policy, token/time budget)</li>
+          <li>Plan the next action (or ask clarifying questions)</li>
+          <li>Call tools / retrieve context</li>
+          <li>Observe outcomes and update working memory</li>
+          <li>Repeat until done, blocked, or budget exhausted</li>
+        </ol>
+        <p>
+          Agents may be single-shot (one plan + a few tools) or multi-step (long-running workflows with memory, handoffs, and human-in-the-loop gates).
+          They often <em>consume</em> MCP servers as their tool surface — but they can also call REST/gRPC directly. MCP is optional plumbing; the agent is the decision layer.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 03 — Agent control loop</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+stateDiagram-v2
+  [*] --> ReceiveGoal
+  ReceiveGoal --> Plan: intent + context
+  Plan --> Act: choose tool / ask user
+  Act --> Observe: tool result
+  Observe --> Plan: not done
+  Observe --> Gate: needs approval
+  Gate --> Act: approved
+  Gate --> Abort: denied
+  Observe --> Complete: goal met
+  Observe --> Abort: budget / error
+  Complete --> [*]
+  Abort --> [*]
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="mcp-vs-agent">
+        <h2>4. When to use MCP vs Agent</h2>
+        <p>
+          They are not competitors. They sit on different layers. The real design question is:
+          <em>Does this feature need standardized capability access, autonomous orchestration, or both?</em>
+        </p>
+
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Prefer MCP</h3>
+            <ul>
+              <li>You need portable tools across hosts (IDE, chat, CI)</li>
+              <li>You want a stable contract for internal systems</li>
+              <li>Many clients should reuse the same capability catalog</li>
+              <li>You care about discovery, auth boundaries, and versioning of tools</li>
+              <li>The <em>caller</em> (human or agent) already decides what to do</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Prefer Agent</h3>
+            <ul>
+              <li>The task needs multi-step planning and recovery</li>
+              <li>Tool choice depends on intermediate results</li>
+              <li>You need memory, retries, and workflow state</li>
+              <li>You must enforce budgets, policies, and escalation</li>
+              <li>Users express goals, not exact tool sequences</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 04 — Decision flow</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TD
+  Q1{"Is the problem<br/>multi-step / goal-based?"}
+  Q2{"Do multiple hosts need<br/>the same tool surface?"}
+  Q3{"Does a planner need to<br/>choose tools dynamically?"}
+
+  A["Ship an Agent runtime"]
+  M["Expose MCP servers"]
+  B["Agent + MCP together"]
+  S["Simple direct tool call<br/>or plain API is enough"]
+
+  Q1 -->|Yes| Q3
+  Q1 -->|No| Q2
+  Q2 -->|Yes| M
+  Q2 -->|No| S
+  Q3 -->|Yes| Q2b{"Reuse tools across<br/>products / hosts?"}
+  Q3 -->|No| A
+  Q2b -->|Yes| B
+  Q2b -->|No| A
+
+  style A fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style M fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style B fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style S fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+
+        <p>
+          <strong>Rule of thumb:</strong> MCP standardizes the hands. Agents provide the brain.
+          Use MCP when you want interoperable hands. Use an agent when you need a brain that can sequence those hands without hard-coding every path.
+        </p>
+      </section>
+
+      <section id="headless">
+        <h2>5. How headless architecture works</h2>
+        <p>
+          A <strong>headless</strong> AI architecture separates the experience layer (web, mobile, Slack, IDE) from the intelligence layer (agents, models, tools).
+          The “head” is any client; the “body” is a durable backend that owns sessions, memory, tool credentials, and audit logs.
+        </p>
+        <p>Why teams adopt it:</p>
+        <ul>
+          <li><strong>One brain, many surfaces</strong> — same agent logic in chat, API, and background jobs</li>
+          <li><strong>Security</strong> — secrets and tool credentials never live in the browser</li>
+          <li><strong>Observability</strong> — traces, evals, and cost controls sit in one place</li>
+          <li><strong>Longevity</strong> — runs continue after a tab closes (async / worker model)</li>
+        </ul>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 05 — Headless AI architecture</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart LR
+  subgraph Heads["Heads — Experience Layer"]
+    Web["Web App"]
+    Mobile["Mobile"]
+    Slack["Slack / Teams"]
+    IDE["IDE Extension"]
+  end
+
+  subgraph Body["Body — Headless Control Plane"]
+    Gateway["API Gateway<br/>auth · rate limits"]
+    Orchestrator["Agent Orchestrator"]
+    Memory["Session · Memory · Artifacts"]
+    Queue["Job Queue / Workers"]
+  end
+
+  subgraph Hands["Hands — Capability Layer"]
+    MCPC["MCP Client Hub"]
+    S1["MCP: Git"]
+    S2["MCP: Data"]
+    S3["MCP: CRM"]
+    LLM["Model Providers"]
+  end
+
+  Web --> Gateway
+  Mobile --> Gateway
+  Slack --> Gateway
+  IDE --> Gateway
+  Gateway --> Orchestrator
+  Orchestrator --> Memory
+  Orchestrator --> Queue
+  Orchestrator --> MCPC
+  Orchestrator --> LLM
+  MCPC --> S1
+  MCPC --> S2
+  MCPC --> S3
+
+  style Gateway fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Orchestrator fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style MCPC fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style LLM fill:#f8fafc,stroke:#0369a1,color:#334155
+            </pre>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>Headless pattern.</strong> Clients send intents and subscribe to events/streams. The orchestrator owns the agent loop, attaches MCP sessions, and publishes progress. UI never owns the tool credentials or the plan.
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 06 — Headless request / event stream</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant UI as Thin Client
+  participant API as Headless API
+  participant Orch as Agent Orchestrator
+  participant MCP as MCP Hub
+  participant Model as LLM
+
+  UI->>API: POST /runs {goal, context}
+  API->>Orch: create run + enqueue
+  API-->>UI: run_id + stream URL
+  loop Until complete
+    Orch->>Model: plan next step
+    Model-->>Orch: tool call / final answer
+    opt Tool needed
+      Orch->>MCP: tools/call
+      MCP-->>Orch: result
+    end
+    Orch-->>UI: SSE/WS event (progress)
+  end
+  Orch-->>UI: final event (artifacts + summary)
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="registries">
+        <h2>6. MCP registry &amp; Agent registry</h2>
+        <p>
+          As soon as you have more than a handful of tools or specialists, ad-hoc config files rot.
+          Registries turn “who can do what” into queryable infrastructure.
+        </p>
+
+        <h3>MCP Registry</h3>
+        <p>
+          An MCP registry is a catalog of MCP servers (and often versions, auth schemes, environments, and health).
+          Hosts and agents discover servers by name/tag instead of hard-coding URLs.
+        </p>
+        <ul>
+          <li>Publish: name, version, transport (stdio / HTTP / SSE), scopes, owner team</li>
+          <li>Resolve: given a capability need, return an endpoint + credentials policy</li>
+          <li>Govern: deprecate, revoke, or pin versions across environments</li>
+        </ul>
+
+        <h3>Agent Registry</h3>
+        <p>
+          An agent registry catalogs specialist agents: their goals, allowed tools, models, SLAs, and invocation contracts.
+          Product surfaces look up <code>support-triage@v3</code> or <code>schema-migrator</code> instead of embedding prompts in every client.
+        </p>
+        <ul>
+          <li>Publish: agent id, description, input schema, tool allowlist, budget defaults</li>
+          <li>Resolve: route a user intent to the right agent (or a router agent)</li>
+          <li>Govern: evaluate quality, roll back versions, enforce org policies</li>
+        </ul>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 07 — Dual registry topology</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  App["Application / Router"]
+
+  subgraph AR["Agent Registry"]
+    A1["agent: research"]
+    A2["agent: ops-fixer"]
+    A3["agent: data-analyst"]
+  end
+
+  subgraph MR["MCP Registry"]
+    M1["mcp: github"]
+    M2["mcp: warehouse"]
+    M3["mcp: pagerduty"]
+    M4["mcp: docs"]
+  end
+
+  App -->|"lookup by intent"| AR
+  A2 -->|"allowlist resolve"| MR
+  A3 -->|"allowlist resolve"| MR
+  A1 -->|"allowlist resolve"| MR
+
+  A2 --> M1
+  A2 --> M3
+  A3 --> M2
+  A1 --> M4
+  A1 --> M1
+
+  style App fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style A1 fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style A2 fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style A3 fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style M1 fill:#ecfdf8,stroke:#0f766e,color:#0f766e
+  style M2 fill:#ecfdf8,stroke:#0f766e,color:#0f766e
+  style M3 fill:#ecfdf8,stroke:#0f766e,color:#0f766e
+  style M4 fill:#ecfdf8,stroke:#0f766e,color:#0f766e
+            </pre>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>Design tip.</strong> Keep registries separate. Mixing “agents” and “tools” in one catalog blurs ownership: platform teams usually own MCP servers; product/AI teams own agent definitions.
+        </div>
+      </section>
+
+      <section id="app-interaction">
+        <h2>7. How the app interacts with Agent vs MCP</h2>
+        <p>
+          From an application developer’s point of view, the APIs feel different because the abstraction level is different.
+        </p>
+
+        <h3>App → Agent</h3>
+        <p>
+          The app speaks in <em>goals and sessions</em>. It does not know which tools will be used.
+          It authenticates the user, starts a run, streams progress, and renders artifacts.
+        </p>
+        <pre><code>POST /agents/ops-fixer/runs
+{
+  "goal": "Investigate elevated 5xx on checkout",
+  "context": { "service": "checkout", "since": "30m" },
+  "budget": { "maxSteps": 20, "maxUsd": 1.5 }
+}</code></pre>
+
+        <h3>App → MCP (directly)</h3>
+        <p>
+          The app (or a simple host) speaks in <em>explicit tool calls</em>. Useful for deterministic features, admin panels, or when a human is already choosing the action.
+        </p>
+        <pre><code>// Host already decided the tool
+mcp.tools.call("github.create_issue", {
+  repo: "acme/checkout",
+  title: "Spike in 5xx",
+  body: "..."
+})</code></pre>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 08 — Two interaction styles side by side</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  subgraph PathA["Path A — App talks to Agent"]
+    UA["App"] -->|"goal + context"| AG["Agent Runtime"]
+    AG -->|"plans"| AG
+    AG -->|"tools/call"| MCPa["MCP Client"]
+    MCPa --> SERVa["MCP Servers"]
+    AG -->|"events / answer"| UA
+  end
+
+  subgraph PathB["Path B — App talks to MCP"]
+    UB["App / Host"] -->|"explicit invoke"| MCPb["MCP Client"]
+    MCPb --> SERVb["MCP Servers"]
+    MCPb -->|"raw results"| UB
+    UB -->|"optional"| LLMb["LLM for formatting only"]
+  end
+
+  style UA fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style UB fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style AG fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style MCPa fill:#ecfdf8,stroke:#0f766e,color:#0f766e
+  style MCPb fill:#ecfdf8,stroke:#0f766e,color:#0f766e
+            </pre>
+          </div>
+        </div>
+
+        <h3>Composition that scales</h3>
+        <p>
+          In production systems, the common pattern is:
+        </p>
+        <ol>
+          <li>App → Agent Registry (pick specialist)</li>
+          <li>Agent → MCP Registry (resolve allowlisted servers)</li>
+          <li>Agent loop → MCP tools → systems of record</li>
+          <li>Events stream back to the thin client</li>
+        </ol>
+        <p>
+          That composition keeps product code simple, keeps tools reusable, and keeps autonomy behind an auditable control plane.
+        </p>
+      </section>
+
+      <section id="superagent">
+        <h2>8. How an enterprise uses a Superagent</h2>
+        <p>
+          In a large company, every domain team eventually builds its own specialist agent — finance reconciliation, SRE incident response, HR policy Q&amp;A, data platform ops.
+          If every product surface must know which specialist to call, the org recreates a mesh of brittle integrations.
+          The enterprise pattern is a <strong>Superagent</strong>: a single entry agent that understands intent, looks up specialists in the <em>Agent Registry</em>, resolves tools via the <em>MCP Registry</em>, and routes (or fans out) work to the right owners.
+        </p>
+        <p>
+          Team-owned agents stay small and sharp. They register what they can do, which MCP servers they are allowed to use, and how they should be invoked.
+          The Superagent never owns every tool — it owns <em>routing, policy, composition, and conversation continuity</em>.
+        </p>
+
+        <h3>Roles in the enterprise mesh</h3>
+        <ul>
+          <li><strong>Superagent (platform-owned)</strong> — single front door; classifies intent; selects specialists; merges answers; enforces org-wide budgets and audit</li>
+          <li><strong>Team agents (domain-owned)</strong> — deep expertise for one bounded context; talk to Superagent via a standard agent contract</li>
+          <li><strong>Agent Registry</strong> — catalog of Superagent + team agents (capabilities, versions, SLAs, allowlists)</li>
+          <li><strong>MCP Registry</strong> — catalog of shared and team-scoped MCP servers (systems of record)</li>
+          <li><strong>MCP servers</strong> — concrete hands on Git, warehouse, ServiceNow, CRM, internal APIs</li>
+        </ul>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 10 — Enterprise Superagent topology</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  User["Employee / App / Slack"] --> SA["Superagent<br/>route · compose · govern"]
+
+  subgraph RegistryPlane["Discovery"]
+    AR["Agent Registry"]
+    MR["MCP Registry"]
+  end
+
+  subgraph TeamAgents["Team-owned agents"]
+    AFin["Finance Agent"]
+    ASre["SRE Agent"]
+    AHr["HR Agent"]
+    AData["Data Agent"]
+  end
+
+  subgraph Mcps["MCP servers"]
+    MErp["mcp: erp"]
+    MObs["mcp: observability"]
+    MHr["mcp: workday"]
+    MWh["mcp: warehouse"]
+    MGit["mcp: github"]
+    MItsm["mcp: itsm"]
+  end
+
+  SA -->|"lookup specialists"| AR
+  SA -->|"resolve shared tools"| MR
+  AR --> AFin
+  AR --> ASre
+  AR --> AHr
+  AR --> AData
+
+  AFin --> MErp
+  AFin --> MWh
+  ASre --> MObs
+  ASre --> MItsm
+  ASre --> MGit
+  AHr --> MHr
+  AData --> MWh
+  AData --> MGit
+
+  SA -.->|"optional direct MCP<br/>for simple asks"| MR
+
+  style User fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style SA fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style AR fill:#eff6ff,stroke:#0369a1,color:#0369a1
+  style MR fill:#ecfdf8,stroke:#0f766e,color:#0f766e
+  style AFin fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style ASre fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style AHr fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style AData fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style MErp fill:#f8fafc,stroke:#64748b,color:#334155
+  style MObs fill:#f8fafc,stroke:#64748b,color:#334155
+  style MHr fill:#f8fafc,stroke:#64748b,color:#334155
+  style MWh fill:#f8fafc,stroke:#64748b,color:#334155
+  style MGit fill:#f8fafc,stroke:#64748b,color:#334155
+  style MItsm fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+
+        <h3>How routing works with registries</h3>
+        <p>
+          When a request arrives, the Superagent does not hard-code team endpoints. It queries the Agent Registry with a capability vector derived from the user intent
+          (for example: <code>domain=sre</code>, <code>skill=incident.triage</code>, <code>env=prod</code>).
+          The registry returns one or more agent records with invocation URLs, auth scopes, and MCP allowlists.
+          Those allowlists are then resolved through the MCP Registry so the specialist only receives credentials for approved servers.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 11 — Superagent request routing sequence</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as User / App
+  participant SA as Superagent
+  participant AR as Agent Registry
+  participant TA as Team Agent
+  participant MR as MCP Registry
+  participant MCP as MCP Server
+
+  U->>SA: goal + org context
+  SA->>SA: classify intent / extract slots
+  SA->>AR: find agents(capability, policy)
+  AR-->>SA: candidates + contracts
+  alt Single specialist
+    SA->>TA: delegate subgoal + constraints
+    TA->>MR: resolve allowlisted MCPs
+    MR-->>TA: endpoints + auth policy
+    TA->>MCP: tools/call
+    MCP-->>TA: result
+    TA-->>SA: specialist answer + artifacts
+  else Multi-specialist composition
+    SA->>TA: fan-out subgoals
+    TA-->>SA: partial results
+    SA->>SA: merge / reconcile / cite
+  end
+  SA-->>U: unified response + audit trail
+            </pre>
+          </div>
+        </div>
+
+        <h3>Team agents talking back to the Superagent</h3>
+        <p>
+          Ownership cuts both ways. A team agent can <em>escalate</em> or <em>request collaboration</em> when it hits a cross-domain boundary —
+          for example the SRE agent finds a bad deploy but needs Finance approval metadata, or the Data agent needs HR join keys it is not allowed to query directly.
+          Instead of calling another team’s MCP servers, the specialist asks the Superagent to route a sub-request to the peer agent that owns that domain.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 12 — Cross-team handoff via Superagent</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart LR
+  U["User"] --> SA["Superagent"]
+  SA -->|"1 primary"| SRE["SRE Agent"]
+  SRE -->|"2 escalate:<br/>need cost center"| SA
+  SA -->|"3 route"| FIN["Finance Agent"]
+  FIN -->|"4 MCP"| ERP["mcp: erp"]
+  FIN -->|"5 answer"| SA
+  SA -->|"6 resume"| SRE
+  SRE -->|"7 MCP"| OBS["mcp: observability"]
+  SRE -->|"8 result"| SA
+  SA -->|"9 unified"| U
+
+  AR["Agent Registry"] -.-> SA
+  MR["MCP Registry"] -.-> FIN
+  MR -.-> SRE
+
+  style U fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style SA fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style SRE fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style FIN fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style ERP fill:#f8fafc,stroke:#64748b,color:#334155
+  style OBS fill:#f8fafc,stroke:#64748b,color:#334155
+  style AR fill:#eff6ff,stroke:#0369a1,color:#0369a1
+  style MR fill:#ecfdf8,stroke:#0f766e,color:#0f766e
+            </pre>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>Enterprise rule.</strong> Specialists never silently call another team’s systems. They escalate through the Superagent so policy, audit, and registry allowlists stay authoritative.
+        </div>
+
+        <h3>What lives in each registry</h3>
+        <div class="compare-grid">
+          <div class="compare-col agent">
+            <h3>Agent Registry entries</h3>
+            <ul>
+              <li><code>superagent@v4</code> — org front door</li>
+              <li><code>sre.incident@v2</code> — owner: platform-sre</li>
+              <li><code>finance.reconciliation@v1</code></li>
+              <li>Input schema, SLA, max budget</li>
+              <li>MCP allowlist + data classes</li>
+              <li>Human-approval gates</li>
+            </ul>
+          </div>
+          <div class="compare-col">
+            <h3>MCP Registry entries</h3>
+            <ul>
+              <li><code>mcp:observability</code> — Prometheus/Logs</li>
+              <li><code>mcp:itsm</code> — incident tickets</li>
+              <li><code>mcp:erp</code> — finance systems</li>
+              <li>Transport, env, health</li>
+              <li>Auth scheme / vault path</li>
+              <li>Version pins per environment</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 13 — Registry-driven control loop inside the Superagent</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Ingest
+  Ingest --> Classify: normalize goal
+  Classify --> LookupAgents: query Agent Registry
+  LookupAgents --> Authorize: policy + data class
+  Authorize --> Delegate: pick specialist(s)
+  Delegate --> Await: team agent runs
+  Await --> Compose: merge results
+  Await --> Escalate: specialist asks peer help
+  Escalate --> LookupAgents: re-route via Superagent
+  Compose --> Respond: audit + stream
+  Respond --> [*]
+  Authorize --> Refuse: policy deny
+  Refuse --> [*]
+            </pre>
+          </div>
+        </div>
+
+        <p>
+          This is how enterprises scale AI without a god-agent that owns every tool:
+          <strong>one Superagent routes</strong>, <strong>many team agents specialize</strong>, and <strong>registries keep both discoverable and governable</strong>.
+          MCP remains the shared hand shape; the Superagent is the org’s operator that knows whose hands to use.
+        </p>
+      </section>
+
+      <section id="decision">
+        <h2>9. Decision matrix</h2>
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th>Need</th>
+              <th>Use</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Reusable tools across hosts</td>
+              <td>MCP</td>
+              <td>Standard discovery &amp; invocation contract</td>
+            </tr>
+            <tr>
+              <td>Multi-step goal solving</td>
+              <td>Agent</td>
+              <td>Planning + observation loop</td>
+            </tr>
+            <tr>
+              <td>Same brain on web + Slack + API</td>
+              <td>Headless agent</td>
+              <td>UI stays thin; runtime owns state</td>
+            </tr>
+            <tr>
+              <td>Many internal systems</td>
+              <td>MCP registry</td>
+              <td>Central catalog, auth, versioning</td>
+            </tr>
+            <tr>
+              <td>Many specialist workflows</td>
+              <td>Agent registry</td>
+              <td>Route intents to versioned agents</td>
+            </tr>
+            <tr>
+              <td>Deterministic one-shot action</td>
+              <td>Direct MCP / API</td>
+              <td>No autonomy tax</td>
+            </tr>
+            <tr>
+              <td>Autonomous ops with guardrails</td>
+              <td>Agent + MCP + policies</td>
+              <td>Brain + hands + brakes</td>
+            </tr>
+            <tr>
+              <td>Many team agents across the org</td>
+              <td>Superagent + registries</td>
+              <td>One router; specialists stay owned by teams</td>
+            </tr>
+            <tr>
+              <td>Cross-domain collaboration</td>
+              <td>Escalate via Superagent</td>
+              <td>No silent peer MCP access; audit stays central</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 09 — End-to-end production shape</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart LR
+  User["User / System"] --> Head["Thin Head<br/>Web · Bot · IDE"]
+  Head --> API["Headless API"]
+  API --> Router["Intent Router"]
+  Router --> AReg["Agent Registry"]
+  AReg --> Agent["Selected Agent"]
+  Agent --> Policies["Policy Engine"]
+  Agent --> MReg["MCP Registry"]
+  MReg --> Tools["MCP Servers"]
+  Tools --> Systems["Git · Data · SaaS"]
+  Agent --> Model["LLM Provider"]
+  Agent --> Stream["Event Stream"]
+  Stream --> Head
+
+  style Head fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Agent fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style AReg fill:#eff6ff,stroke:#0369a1,color:#0369a1
+  style MReg fill:#ecfdf8,stroke:#0f766e,color:#0f766e
+  style Tools fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Model fill:#f8fafc,stroke:#0369a1,color:#334155
+            </pre>
+          </div>
+        </div>
+
+        <h2>Closing</h2>
+        <p>
+          MCP is how you expose capabilities. Agents are how you sequence them toward goals.
+          Headless architecture is how you ship that intelligence to every surface without trapping it in a single UI.
+          Registries are how the system stays discoverable as it grows.
+          A Superagent is how an enterprise routes across many team-owned agents without building a god-tool monolith.
+        </p>
+        <p>
+          If you only remember one line: <em>standardize the hands with MCP, specialize the brains as team agents, route through a Superagent, and keep the head replaceable.</em>
+        </p>
+
+
+        <section class="reactions prose-wrap" data-reactions data-article-id="topics/ai/mcp-vs-agents">
+          <p class="reactions-note">Was this helpful?</p>
+          <div class="reactions-buttons" role="group" aria-label="Rate this article">
+            <button type="button" class="reaction-btn" data-reaction="like" aria-label="Like" aria-pressed="false">
+              <span class="reaction-icon" aria-hidden="true">👍</span>
+              <span class="reaction-count">0</span>
+            </button>
+            <button type="button" class="reaction-btn" data-reaction="dislike" aria-label="Dislike" aria-pressed="false">
+              <span class="reaction-icon" aria-hidden="true">👎</span>
+              <span class="reaction-count">0</span>
+            </button>
+            <button type="button" class="reaction-btn" data-reaction="love" aria-label="Double like" aria-pressed="false">
+              <span class="reaction-icon" aria-hidden="true">👍👍</span>
+              <span class="reaction-count">0</span>
+            </button>
+          </div>
+        </section>
+
+
+        <p style="margin-top: 2.5rem;">
+          <a class="btn btn-ghost" href="../../../topics/ai/">← Back to topic</a>
+          <a class="btn btn-ghost" href="../../../" style="margin-left:0.5rem">Home</a>
+        </p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <div class="footer-brand">Tech Blog by Dip</div>
+        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span></p>
+      </div>
+      <p class="footer-copy">Deployed on GitHub Pages</p>
+    </div>
+  </footer>
+
+  <script src="../../../assets/js/reactions-config.example.js"></script>
+  <script src="../../../assets/js/reactions.js"></script>
+  <script src="../../../assets/js/main.js"></script>
+</body>
+</html>

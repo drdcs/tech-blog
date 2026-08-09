@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>The Thin Pipe — Kafka to BigQuery on Storage Write API — Tech Blog by Dip</title>
+  <meta name="description" content="Build a memory-efficient Kafka to BigQuery pipeline with Storage Write API, gRPC protobuf, Kubernetes scaling, partitioning, and controlled staleness — without Spark or Flink tax." />
+  <meta name="theme-color" content="#f5f7f6" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../../assets/css/styles.css" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      securityLevel: "loose",
+      flowchart: {
+        curve: "basis",
+        padding: 16,
+        htmlLabels: true,
+        nodeSpacing: 40,
+        rankSpacing: 50
+      },
+      sequence: {
+        actorMargin: 48,
+        mirrorActors: false,
+        bottomMarginAdjust: 8,
+        messageMargin: 40
+      },
+      themeVariables: {
+        darkMode: false,
+        background: "#ffffff",
+        primaryColor: "#ecfdf8",
+        primaryTextColor: "#14201b",
+        primaryBorderColor: "#0f766e",
+        secondaryColor: "#eff6ff",
+        secondaryTextColor: "#14201b",
+        secondaryBorderColor: "#0369a1",
+        tertiaryColor: "#f8fafc",
+        tertiaryTextColor: "#334155",
+        tertiaryBorderColor: "#64748b",
+        lineColor: "#5c6f66",
+        textColor: "#2a3a33",
+        mainBkg: "#ecfdf8",
+        nodeBorder: "#0f766e",
+        clusterBkg: "#f8fafc",
+        clusterBorder: "#cbd5e1",
+        titleColor: "#14201b",
+        actorBkg: "#ecfdf8",
+        actorBorder: "#0f766e",
+        actorTextColor: "#14201b",
+        actorLineColor: "#94a3b8",
+        signalColor: "#2a3a33",
+        signalTextColor: "#14201b",
+        labelBoxBkgColor: "#ffffff",
+        labelBoxBorderColor: "#0f766e",
+        labelTextColor: "#14201b",
+        loopTextColor: "#0369a1",
+        noteBkgColor: "#eff6ff",
+        noteTextColor: "#14201b",
+        noteBorderColor: "#0369a1",
+        activationBkgColor: "rgba(15,118,110,0.12)",
+        activationBorderColor: "#0f766e",
+        sequenceNumberColor: "#ffffff"
+      }
+    });
+
+    const run = async () => {
+      const nodes = document.querySelectorAll(".mermaid");
+      await mermaid.run({ nodes });
+      document.querySelectorAll(".diagram-frame svg .edgePath path, .diagram-frame svg .flowchart-link").forEach((path, i) => {
+        path.style.strokeDasharray = "8 6";
+        path.style.animation = `dash-flow ${1.4 + (i % 3) * 0.2}s linear infinite`;
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run);
+    } else {
+      run();
+    }
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="../../../" aria-label="Tech Blog by Dip home">
+        <span class="brand-mark">Tech Blog</span>
+        <span class="brand-tag">by Dip</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+      <ul class="nav-links">
+        <li><a href="../../../">Home</a></li>
+        <li><a href="../../../#topics">Topics</a></li>
+        <li><a href="../../../topics/ai/">AI</a></li>
+        <li><a href="../../../topics/data/" aria-current="page">Data</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <header class="article-hero">
+      <div class="prose-wrap">
+        <div class="article-meta">
+          <span class="pill">Data Platforms</span>
+          <span>Streaming</span>
+          <span>26 min read</span>
+          <span>Aug 2026</span>
+        </div>
+        <h1 class="article-title">The Thin Pipe</h1>
+        <p class="article-dek">
+          Kafka to BigQuery on the Storage Write API — a memory-efficient, gRPC-native data flow you can scale on Kubernetes without paying the Spark or Flink cluster tax.
+        </p>
+      </div>
+    </header>
+
+    <article class="article-body prose-wrap">
+      <nav class="toc" aria-label="Table of contents">
+        <h2>On this page</h2>
+        <ol>
+          <li><a href="#thesis">The thesis</a></li>
+          <li><a href="#history">A short history of Storage Write API</a></li>
+          <li><a href="#architecture">Thin-pipe architecture</a></li>
+          <li><a href="#grpc-proto">gRPC &amp; protobuf</a></li>
+          <li><a href="#loader">Destination loader (BigQuery)</a></li>
+          <li><a href="#streams">Write stream types &amp; upserts</a></li>
+          <li><a href="#k8s">Scale on Kubernetes</a></li>
+          <li><a href="#why-not-spark">Why not Spark / Flink?</a></li>
+          <li><a href="#code">Code sketch (Python)</a></li>
+          <li><a href="#benchmarks">Benchmarks</a></li>
+          <li><a href="#partition-staleness">Partitioning &amp; staleness</a></li>
+        </ol>
+      </nav>
+
+      <section id="thesis">
+        <h2>1. The thesis</h2>
+        <p>
+          Most Kafka → warehouse pipelines are overbuilt. Teams reach for Spark Structured Streaming or Flink because those tools are excellent at <em>stateful</em> stream processing —
+          windows, joins, exactly-once across complex DAGs. But a large class of workloads is simpler:
+          <strong>consume, validate, map to a typed row, append to BigQuery</strong>.
+        </p>
+        <p>
+          For that shape, a thin consumer plus the <strong>BigQuery Storage Write API</strong> wins on memory, cost, and operational surface.
+          You keep hot state in Kafka offsets (and maybe a tiny in-process buffer), speak protobuf over gRPC to BigQuery, and scale with Kubernetes HPA — one pod per partition group, not one JVM cluster per pipeline.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 01 — Fat path vs thin pipe</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart LR
+  subgraph Fat["Fat path — cluster tax"]
+    K1["Kafka"] --> SP["Spark / Flink<br/>executors · shuffle · checkpoint"]
+    SP --> BQ1["BigQuery<br/>load / insertAll"]
+  end
+
+  subgraph Thin["Thin pipe — container cost"]
+    K2["Kafka"] --> W["Write worker<br/>~256–512 MB"]
+    W -->|"gRPC + proto"| SW["Storage Write API"]
+    SW --> BQ2["BigQuery table"]
+  end
+
+  style K1 fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style K2 fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style SP fill:#fef2f2,stroke:#b91c1c,color:#14201b
+  style W fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style SW fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style BQ1 fill:#f8fafc,stroke:#64748b,color:#334155
+  style BQ2 fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="history">
+        <h2>2. A short history of the BigQuery Storage Write API</h2>
+        <p>
+          BigQuery’s write story evolved in three eras:
+        </p>
+        <ol>
+          <li>
+            <strong>Load jobs (batch).</strong> Upload Avro/Parquet/CSV to GCS, run a load job.
+            Cheap and durable, but minutes of lag — fine for warehouses, painful for near-real-time product analytics.
+          </li>
+          <li>
+            <strong>Streaming inserts (<code>tabledata.insertAll</code>).</strong> REST JSON rows into a streaming buffer.
+            Easy to adopt, but higher per-row cost, weaker throughput ceilings, and awkward semantics around duplicates and when data lands in durable storage / partitions.
+          </li>
+          <li>
+            <strong>Storage API era (~2021–2022+).</strong> Google opened a high-throughput binary path.
+            The <em>Storage Read API</em> landed first for arrow/avro consumers; the <strong>Storage Write API</strong> followed as the modern write surface —
+            gRPC streams, protobuf (or Arrow) payloads, committed / pending stream modes, and a design aimed at exactly-once style ingestion without JSON tax.
+          </li>
+        </ol>
+        <p>
+          Today, for sustained Kafka drains, Storage Write is the default recommendation when you care about cost per GB, memory on the producer side, and predictable commit semantics.
+          The thin pipe in this essay sits squarely in that third era.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 02 — Write API timeline (simplified)</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+timeline
+  title BigQuery write surfaces
+  2010s : Load jobs from GCS
+         : Batch, cheap, high latency
+  mid-2010s : tabledata.insertAll
+            : REST JSON streaming buffer
+  2021 : Storage Read API
+       : Binary analytics scan path
+  2022+ : Storage Write API GA
+        : gRPC streams · proto/Arrow
+        : committed / pending modes
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <h2>3. Thin-pipe architecture</h2>
+        <p>
+          The pipeline is deliberately boring. Kafka holds the durable log. Workers are stateless besides consumer offsets and a small append buffer.
+          BigQuery is the analytical destination. No shuffle, no RocksDB state backend, no checkpoint coordination service.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 03 — End-to-end thin pipe</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  subgraph Produce["Producers"]
+    Svc["Services / CDC / Apps"]
+  end
+
+  subgraph Bus["Event bus"]
+    Kafka["Kafka topic<br/>keyed · partitioned"]
+  end
+
+  subgraph K8s["Kubernetes — write workers"]
+    W1["Worker 0<br/>partitions 0–3"]
+    W2["Worker 1<br/>partitions 4–7"]
+    W3["Worker N…"]
+  end
+
+  subgraph GCP["Google Cloud"]
+    SW["BigQuery Storage Write<br/>gRPC AppendRows"]
+    BQ["BigQuery table<br/>partitioned + clustered"]
+    MV["Materialized view<br/>max_staleness"]
+  end
+
+  Svc --> Kafka
+  Kafka --> W1
+  Kafka --> W2
+  Kafka --> W3
+  W1 --> SW
+  W2 --> SW
+  W3 --> SW
+  SW --> BQ
+  BQ --> MV
+
+  style Kafka fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style W1 fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style W2 fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style W3 fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style SW fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style BQ fill:#f8fafc,stroke:#64748b,color:#334155
+  style MV fill:#eff6ff,stroke:#0369a1,color:#14201b
+            </pre>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>Memory model.</strong> Peak RSS should track <em>batch size × row width × inflight streams</em>, not executor heap × parallelism × shuffle buffers. That is the whole point of the thin pipe.
+        </div>
+      </section>
+
+      <section id="grpc-proto">
+        <h2>4. gRPC &amp; protobuf on the wire</h2>
+        <p>
+          Storage Write speaks <strong>gRPC</strong>. Workers open a bidirectional stream and call <code>AppendRows</code> with serialized payloads.
+          Compared with REST JSON inserts you avoid: text encoding bloat, repeated schema keys per row, and HTTP/1 chatty connection behavior.
+          Protobuf (or Arrow) keeps CPU on both sides predictable.
+        </p>
+        <p>
+          Practically you maintain a <strong><code>.proto</code></strong> that mirrors the BigQuery table schema (or a stable subset). Codegen produces language bindings; the worker maps Kafka messages → proto messages → append requests.
+          Schema evolution is intentional: add optional fields, version the proto, and roll workers behind a compatible BigQuery schema update.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 04 — Wire path: Kafka bytes → proto → gRPC → BigQuery</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant K as Kafka
+  participant W as Write Worker
+  participant G as Storage Write gRPC
+  participant B as BigQuery
+
+  K->>W: poll batch (binary events)
+  W->>W: validate · map · proto encode
+  W->>G: AppendRows (stream + proto bytes)
+  G->>B: commit to write stream
+  B-->>G: append result / offsets
+  G-->>W: ack / error
+  W->>K: commit consumer offsets
+            </pre>
+          </div>
+        </div>
+
+        <p>Example proto aligned to a partitioned events table:</p>
+<pre><code>syntax = "proto2";
+
+message CheckoutEvent {
+  optional string event_id = 1;
+  optional int64  event_time_ms = 2;   // used for day partition
+  optional string user_id = 3;
+  optional string sku = 4;
+  optional int64  amount_cents = 5;
+  optional string currency = 6;
+  optional string region = 7;          // clustering candidate
+}</code></pre>
+      </section>
+
+      <section id="loader">
+        <h2>5. Destination loader (BigQuery)</h2>
+        <p>
+          Think of the worker’s BigQuery side as a <strong>destination loader</strong>: a small module that owns stream lifecycle, retries, and backpressure — not business logic.
+          Responsibilities:
+        </p>
+        <ul>
+          <li>Create or attach to a <strong>write stream</strong> (default, committed, pending, or buffered — see next section)</li>
+          <li>Batch proto rows into <code>AppendRows</code> frames sized for throughput (often hundreds of KB to a few MB)</li>
+          <li>Handle flow control / RESOURCE_EXHAUSTED with exponential backoff</li>
+          <li>Only then acknowledge Kafka offsets — so BigQuery durability leads consumer progress</li>
+          <li>Emit metrics: append latency, rows/s, bytes/s, error class, stream recreates</li>
+        </ul>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 05 — Destination loader internals</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  In["Kafka batch"] --> Map["Mapper<br/>event → proto"]
+  Map --> Buf["Append buffer<br/>size / time flush"]
+  Buf --> Stream["Write stream mgr<br/>create · recreate · pin"]
+  Stream --> GRPC["AppendRows gRPC"]
+  GRPC --> OK{"Success?"}
+  OK -->|yes| Commit["Commit Kafka offsets"]
+  OK -->|retryable| Backoff["Backoff / split batch"]
+  Backoff --> GRPC
+  OK -->|poison| DLQ["DLQ topic / sink"]
+
+  style In fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Map fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style Buf fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style Stream fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style GRPC fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Commit fill:#f8fafc,stroke:#64748b,color:#334155
+          style DLQ fill:#fef2f2,stroke:#b91c1c,color:#14201b
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="streams">
+        <h2>6. Write stream types &amp; how upserts work</h2>
+        <p>
+          The Storage Write API is stream-oriented. Before you call <code>AppendRows</code>, you choose (or inherit) a <strong>write stream type</strong>.
+          That choice controls when rows become queryable and how you get exactly-once / atomic visibility.
+        </p>
+
+        <h3>Stream types</h3>
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Visibility</th>
+              <th>When to use</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Default stream</td>
+              <td>Queryable as soon as append is ACK’d</td>
+              <td>Simplest thin pipe; at-least-once if you retry after ACK loss</td>
+            </tr>
+            <tr>
+              <td>Committed stream</td>
+              <td>Visible immediately after successful append</td>
+              <td>You manage stream create/lifecycle; low-latency reads</td>
+            </tr>
+            <tr>
+              <td>Pending stream</td>
+              <td>Hidden until Finalize + BatchCommit</td>
+              <td>Atomic “all rows appear together”; multi-stream commit</td>
+            </tr>
+            <tr>
+              <td>Buffered stream</td>
+              <td>Visible up to a flushed offset</td>
+              <td>Fine-grained commit cursor via <code>FlushRows</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <ul>
+          <li>
+            <strong>Default stream (<code>_default</code>)</strong> — no stream create call; every successful append is committed.
+            Ideal for continuous Kafka drains where seconds of visibility lag are fine and duplicates are handled downstream (or via CDC upsert keys).
+          </li>
+          <li>
+            <strong>Committed stream</strong> — <code>CreateWriteStream(type=COMMITTED)</code>. Same immediate visibility model as default, but you own the stream name/lifecycle (recreate on failure, pin per worker, etc.).
+          </li>
+          <li>
+            <strong>Pending stream</strong> — appends land in a non-queryable pending area. You <code>FinalizeWriteStream</code>, then <code>BatchCommitWriteStreams</code> for one or more streams.
+            Readers never see a partial micro-batch — powerful for “exactly once visibility” of a Kafka offset window.
+          </li>
+          <li>
+            <strong>Buffered stream</strong> — append freely, then <code>FlushRows</code> up to an offset so only the flushed prefix becomes durable/visible. Useful when you want commit frontiers without full pending-batch ceremony.
+          </li>
+        </ul>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 06 — Stream commit semantics</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  Append["AppendRows"] --> Kind{"Stream type?"}
+  Kind -->|Default / Committed| Vis["Immediately queryable"]
+  Kind -->|Pending| Pend["Pending storage"]
+  Pend --> Fin["FinalizeWriteStream"]
+  Fin --> Batch["BatchCommitWriteStreams"]
+  Batch --> Vis
+  Kind -->|Buffered| Buf["Buffered storage"]
+  Buf --> Flush["FlushRows to offset"]
+  Flush --> Vis
+
+  style Append fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style Vis fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Pend fill:#f8fafc,stroke:#64748b,color:#334155
+  style Buf fill:#f8fafc,stroke:#64748b,color:#334155
+  style Batch fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Flush fill:#ecfdf8,stroke:#0f766e,color:#14201b
+            </pre>
+          </div>
+        </div>
+
+        <h3>How upserts work on the Storage Write API</h3>
+        <p>
+          The write API is append-shaped on the wire, but BigQuery can <strong>apply change-data-capture (CDC) upserts/deletes</strong> when the destination table declares a <strong>primary key</strong> (typically <code>NOT ENFORCED</code>).
+          Instead of blind inserts, each row carries change metadata that BigQuery applies against the key:
+        </p>
+        <ul>
+          <li><code>_CHANGE_TYPE</code> — <code>UPSERT</code> or <code>DELETE</code></li>
+          <li><code>_CHANGE_SEQUENCE_NUMBER</code> — monotonic per-key ordering so late/duplicate Kafka deliveries do not clobber newer state</li>
+        </ul>
+        <p>
+          Practical thin-pipe pattern for mutable entities (users, orders, CDC from OLTP):
+        </p>
+        <ol>
+          <li>Create the table with a primary key on the business id</li>
+          <li>Write continuously on the <strong>default stream</strong> (CDC path is built around it)</li>
+          <li>Map Kafka compacted/CDC topics → proto/JSON rows including <code>_CHANGE_TYPE</code></li>
+          <li>Use sequence numbers from the source LSN / Kafka offset / Debezium pos so retries stay idempotent</li>
+        </ol>
+<pre><code>-- Destination that supports Storage Write CDC upserts
+CREATE TABLE analytics.orders_current (
+  order_id STRING NOT NULL,
+  status STRING,
+  amount_cents INT64,
+  updated_at TIMESTAMP
+)
+PRIMARY KEY (order_id) NOT ENFORCED
+PARTITION BY DATE(updated_at);</code></pre>
+<pre><code># Pseudocode row payload for an upsert append
+row = {
+    "order_id": "ord_9f2",
+    "status": "paid",
+    "amount_cents": 4599,
+    "updated_at": "2026-08-09T09:15:00Z",
+    "_CHANGE_TYPE": "UPSERT",
+    "_CHANGE_SEQUENCE_NUMBER": "170000000012345",  # source LSN / offset
+}</code></pre>
+        <div class="callout">
+          <strong>Append vs upsert.</strong> Immutable events (clicks, impressions) → plain append on default/committed streams.
+          Mutable snapshots (CDC, entity state) → primary key + <code>_CHANGE_TYPE</code> upserts.
+          Don’t MERGE from staging on every micro-batch if the Storage Write CDC path already fits — that MERGE is where teams accidentally reintroduce Spark-sized cost.
+        </div>
+      </section>
+
+      <section id="k8s">
+        <h2>7. Scale with Kubernetes</h2>
+        <p>
+          Horizontal scale maps cleanly to Kafka partitions. Run a Deployment (or StatefulSet) of write workers; each consumer instance in the group receives a subset of partitions.
+          Autoscale on lag (Kafka consumer group lag exporter → HPA / KEDA), not on CPU alone — ingestion is often network and gRPC bound.
+        </p>
+        <ul>
+          <li><strong>Partition affinity:</strong> more partitions than peak pods; avoid idle executors</li>
+          <li><strong>Requests/limits:</strong> start ~256–512Mi request, 1Gi limit per worker for typical row widths</li>
+          <li><strong>PodDisruptionBudgets:</strong> keep lag from spiking during node drains</li>
+          <li><strong>Secrets:</strong> Workload Identity to BigQuery — no JSON key files on disk</li>
+        </ul>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 07 — K8s scale-out on lag</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart LR
+  Lag["Lag metric<br/>KEDA / HPA"] --> HPA["Autoscaler"]
+  HPA -->|"replicas++"| Pods["Write worker pods"]
+  Pods -->|"rebalance"| KG["Kafka consumer group"]
+  KG --> P0["P0–P3"]
+  KG --> P1["P4–P7"]
+  KG --> Pn["P…"]
+  P0 --> BQ["Storage Write"]
+  P1 --> BQ
+  Pn --> BQ
+
+  style Lag fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style HPA fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style Pods fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style BQ fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="why-not-spark">
+        <h2>8. Why Spark / Flink is not cost-efficient here</h2>
+        <p>
+          Spark and Flink shine when you need distributed state: session windows, stream–stream joins, CEP, large keyed aggregations.
+          For append-only Kafka → BigQuery, you still pay for:
+        </p>
+        <ul>
+          <li><strong>Always-on cluster tax</strong> — drivers, task managers, coordinators, checkpoint storage</li>
+          <li><strong>Memory amplification</strong> — JVM heap, managed memory, network buffers far above row batch size</li>
+          <li><strong>Operational gravity</strong> — savepoints, connector versioning, shuffle / restart semantics for a pipeline that does not need them</li>
+          <li><strong>Cold start &amp; bin-packing waste</strong> — executors sized for peaks sit idle at troughs; K8s pods scale to zero/near-zero more naturally with KEDA</li>
+        </ul>
+        <p>
+          If your “processing” is a map and a filter, a ~400MB Python worker writing protobuf over gRPC will usually beat a multi-GB Flink TM on cost per sustained MB/s.
+          Keep Flink/Spark for the jobs that actually need the stateful engine — don’t make them your default warehouse faucet.
+        </p>
+
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Thin pipe on K8s</h3>
+            <ul>
+              <li>Memory ≈ batch × inflight</li>
+              <li>Scale = partition count</li>
+              <li>State = Kafka offsets</li>
+              <li>Ops = Deployment + HPA</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Spark / Flink faucet</h3>
+            <ul>
+              <li>Memory ≈ executor × parallelism</li>
+              <li>Scale = cluster reshape</li>
+              <li>State = checkpoints + KE</li>
+              <li>Ops = platform team tax</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="code">
+        <h2>9. Code sketch (Python)</h2>
+        <p>
+          Illustrative hot path using <code>confluent-kafka</code> and the BigQuery Storage Write client patterns.
+          Production code should add metrics, poison handling, and stream recreation on failed appends.
+        </p>
+<pre><code>import json
+
+from confluent_kafka import Consumer
+from google.cloud import bigquery_storage_v1
+from google.cloud.bigquery_storage_v1 import types, writer
+
+# checkout_event_pb2 is generated from checkout_event.proto
+import checkout_event_pb2
+
+
+PROJECT = "my-project"
+DATASET = "analytics"
+TABLE = "checkout_events"
+
+
+def make_consumer() -> Consumer:
+    return Consumer(
+        {
+            "bootstrap.servers": "kafka:9092",
+            "group.id": "bq-thin-pipe",
+            "enable.auto.commit": False,
+            "auto.offset.reset": "earliest",
+        }
+    )
+
+
+def to_proto(raw: bytes) -> checkout_event_pb2.CheckoutEvent:
+    data = json.loads(raw)
+    ev = checkout_event_pb2.CheckoutEvent(
+        event_id=data["event_id"],
+        event_time_ms=int(data["event_time_ms"]),
+        user_id=data["user_id"],
+        sku=data["sku"],
+        amount_cents=int(data["amount_cents"]),
+        currency=data.get("currency", "USD"),
+        region=data.get("region", "unknown"),
+    )
+    return ev
+
+
+class BQLoader:
+    """Destination loader: owns write-stream lifecycle + AppendRows."""
+
+    def __init__(self):
+        self._client = bigquery_storage_v1.BigQueryWriteClient()
+        self._parent = self._client.table_path(PROJECT, DATASET, TABLE)
+        # Default stream: simplest continuous drain (at-least-once).
+        self._stream = f"{self._parent}/streams/_default"
+        self._append = None
+
+    def open(self):
+        request_template = types.AppendRowsRequest()
+        request_template.write_stream = self._stream
+
+        proto_data = types.AppendRowsRequest.ProtoData()
+        # Attach proto schema / descriptor for CheckoutEvent in real code:
+        # proto_data.writer_schema.protobuf.proto_descriptor.CopyFrom(...)
+        request_template.proto_rows = proto_data
+
+        self._append = writer.AppendRowsStream(self._client, request_template)
+
+    def append(self, rows: list[checkout_event_pb2.CheckoutEvent]) -> None:
+        proto_rows = types.ProtoRows()
+        for row in rows:
+            proto_rows.serialized_rows.append(row.SerializeToString())
+
+        req = types.AppendRowsRequest()
+        req.proto_rows.rows.CopyFrom(proto_rows)
+        future = self._append.send(req)
+        future.result()  # raise on append error; do NOT commit Kafka yet
+
+
+def run() -> None:
+    consumer = make_consumer()
+    consumer.subscribe(["checkout.events"])
+    loader = BQLoader()
+    loader.open()
+
+    try:
+        while True:
+            messages = consumer.consume(num_messages=500, timeout=0.5)
+            if not messages:
+                continue
+
+            rows = []
+            for msg in messages:
+                if msg.error():
+                    raise RuntimeError(msg.error())
+                rows.append(to_proto(msg.value()))
+
+            # BigQuery durability first — then Kafka offsets.
+            loader.append(rows)
+            consumer.commit(asynchronous=False)
+    finally:
+        consumer.close()
+
+
+if __name__ == "__main__":
+    run()</code></pre>
+
+        <p>Optional: pending-stream commit for atomic visibility of one Kafka batch:</p>
+<pre><code>def append_pending_batch(client, parent, rows):
+    stream = client.create_write_stream(
+        parent=parent,
+        write_stream=types.WriteStream(
+            type_=types.WriteStream.Type.PENDING
+        ),
+    )
+    # ... AppendRows to stream.name for `rows` ...
+    client.finalize_write_stream(name=stream.name)
+    client.batch_commit_write_streams(
+        parent=parent,
+        write_streams=[stream.name],
+    )</code></pre>
+
+        <p>Kubernetes scaling trigger (KEDA + lag):</p>
+<pre><code>apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: bq-thin-pipe
+spec:
+  scaleTargetRef:
+    name: bq-write-worker
+  minReplicaCount: 2
+  maxReplicaCount: 64
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: bq-thin-pipe
+        topic: checkout.events
+        lagThreshold: "50000"</code></pre>
+      </section>
+
+      <section id="benchmarks">
+        <h2>10. Benchmark numbers (representative lab)</h2>
+        <p>
+          Numbers below are <em>order-of-magnitude lab figures</em> for a ~400-byte average event, single region, committed-style append path.
+          Use them for sizing intuition — re-bench on your schema and quota.
+        </p>
+
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th>Setup</th>
+              <th>Sustained</th>
+              <th>Worker memory</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Thin pipe · Storage Write</td>
+              <td>~25–40 MB/s / pod</td>
+              <td>~300–450 MB RSS</td>
+              <td>gRPC proto, 1–2 MiB append frames</td>
+            </tr>
+            <tr>
+              <td>Thin pipe · 16 pods</td>
+              <td>~400–600 MB/s</td>
+              <td>~6–8 GB total</td>
+              <td>Scales with partitions / quota</td>
+            </tr>
+            <tr>
+              <td>insertAll REST JSON</td>
+              <td>~5–12 MB/s / task</td>
+              <td>~400 MB+</td>
+              <td>Higher cost/GB, more API chatter</td>
+            </tr>
+            <tr>
+              <td>Flink TM faucet</td>
+              <td>~30–50 MB/s / TM</td>
+              <td>~2–4 GB / TM</td>
+              <td>Same map/filter job; state backend idle</td>
+            </tr>
+            <tr>
+              <td>Spark Structured Streaming</td>
+              <td>similar I/O</td>
+              <td>~4 GB+ / executor</td>
+              <td>Microbatch overhead; cluster always warm</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <strong>Read the ratio.</strong> For append-only drains, thin pipe often delivers similar throughput per core at roughly <em>5–10× lower memory</em> than a Flink/Spark executor sized for comfort — and you can scale pods to lag instead of resizing a cluster.
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 08 — Cost shape over a diurnal traffic curve</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  subgraph Day["Diurnal load"]
+    Peak["Peak lag → scale pods out"]
+    Trough["Trough → scale pods in"]
+  end
+
+  subgraph Cost["Relative spend"]
+    Thin["Thin pipe: follows lag"]
+    Cluster["Spark/Flink: floor cost<br/>even at trough"]
+  end
+
+  Peak --> Thin
+  Trough --> Thin
+  Peak --> Cluster
+  Trough --> Cluster
+
+  style Thin fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Cluster fill:#fef2f2,stroke:#b91c1c,color:#14201b
+  style Peak fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style Trough fill:#eff6ff,stroke:#0369a1,color:#14201b
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="partition-staleness">
+        <h2>11. Partitioning &amp; staleness — how to set it, why it matters</h2>
+
+        <h3>Partitioning the destination</h3>
+        <p>
+          Partition BigQuery tables on <strong>event day</strong> (from <code>event_time_ms</code>), not only ingestion time, so late Kafka data still lands in the analytical day dashboards expect.
+          Add clustering on high-cardinality filter columns (<code>region</code>, <code>sku</code>) to cut scanned bytes.
+          Enforce <code>require_partition_filter = true</code> so ad-hoc queries cannot accidentally full-scan years of stream history.
+        </p>
+<pre><code>CREATE TABLE analytics.checkout_events (
+  event_id STRING,
+  event_time TIMESTAMP,
+  user_id STRING,
+  sku STRING,
+  amount_cents INT64,
+  currency STRING,
+  region STRING
+)
+PARTITION BY DATE(event_time)
+CLUSTER BY region, sku
+OPTIONS (require_partition_filter = true);</code></pre>
+
+        <h3>What “fresh” means on the write path</h3>
+        <p>
+          With Storage Write (default/committed), rows become queryable quickly after append ACK — often <strong>seconds</strong>, dominated by your flush interval + gRPC RTT, not by a mysterious multi-minute streaming buffer.
+          Pending streams delay visibility until <code>BatchCommit</code> on purpose.
+          Treat write-side freshness as an SLA you measure (<code>append_ack_latency</code>, <code>kafka_to_bq_visible_p99</code>), not as “eventually sometime.”
+        </p>
+
+        <h3>How to set staleness in BigQuery</h3>
+        <p>
+          Staleness is configured on <strong>materialized views</strong> (and respected by queries that can use them) via <code>max_staleness</code>.
+          It tells BigQuery: <em>“It is acceptable to answer from a result that is up to this old.”</em>
+        </p>
+<pre><code>-- Create with an explicit staleness budget
+CREATE MATERIALIZED VIEW analytics.checkout_mv
+OPTIONS (
+  enable_refresh = true,
+  refresh_interval_minutes = 10,
+  max_staleness = INTERVAL 15 MINUTE
+)
+AS
+SELECT
+  DATE(event_time) AS d,
+  region,
+  COUNT(*) AS events,
+  SUM(amount_cents) AS revenue_cents
+FROM analytics.checkout_events
+WHERE event_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+GROUP BY 1, 2;
+
+-- Or alter later when SLAs change
+ALTER MATERIALIZED VIEW analytics.checkout_mv
+SET OPTIONS (max_staleness = INTERVAL 5 MINUTE);
+
+-- Dashboard / BI query: allow bounded staleness explicitly
+SELECT *
+FROM analytics.checkout_mv
+FOR SYSTEM_TIME AS OF
+  TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 0 SECOND);
+-- Prefer querying the MV directly; BigQuery may use last refresh
+-- + incremental base-table delta within max_staleness.</code></pre>
+        <p>
+          Practical guidance for choosing the interval:
+        </p>
+        <ul>
+          <li><strong>Ops / fraud / paging</strong> — query the <em>base table</em>; do not lean on a 15‑minute MV</li>
+          <li><strong>Product dashboards</strong> — <code>INTERVAL 5 MINUTE</code> to <code>15 MINUTE</code> is a common sweet spot</li>
+          <li><strong>Executive rollups</strong> — <code>INTERVAL 30 MINUTE</code> to <code>1 HOUR</code> is often enough and much cheaper under load</li>
+        </ul>
+
+        <h3>Why staleness is important</h3>
+        <p>
+          Under a thin pipe at high ingest, the base table is always moving. If every Looker/Metabase tile hits the live fact table with tight freshness, you pay:
+        </p>
+        <ul>
+          <li>Slot contention exactly when Kafka lag (and business attention) peaks</li>
+          <li>Unstable dashboard latency — query plans fight a hot streaming tail</li>
+          <li>Redundant aggregation of the same seconds-old data across hundreds of concurrent readers</li>
+        </ul>
+        <p>
+          <code>max_staleness</code> decouples <strong>write freshness</strong> from <strong>read freshness</strong>.
+          Writers keep committing as fast as Storage Write allows; readers declare a budget so BigQuery can reuse refreshed MV state and only apply a bounded delta.
+          That is how you keep the pipe thin <em>and</em> the warehouse calm.
+        </p>
+
+        <h3>High-scale events: time to resolve after staleness is set</h3>
+        <p>
+          “Time to resolve” here means: <em>how long until a high-scale burst of events shows up as a stable number in the table/MV your consumers trust.</em>
+          With staleness configured, that clock has two layers:
+        </p>
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th>Layer</th>
+              <th>Typical resolve time</th>
+              <th>What it means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Base table (default/committed)</td>
+              <td>~1–5 s p50, ~5–30 s p99</td>
+              <td>Event is queryable after append ACK + flush</td>
+            </tr>
+            <tr>
+              <td>MV inside <code>max_staleness</code></td>
+              <td>≤ staleness interval</td>
+              <td>Dashboard may legally lag up to the budget</td>
+            </tr>
+            <tr>
+              <td>MV after a traffic spike</td>
+              <td>often still ≤ max_staleness</td>
+              <td>BQ serves last good refresh + delta instead of full re-agg</td>
+            </tr>
+            <tr>
+              <td>Pending-stream batch</td>
+              <td>hidden until BatchCommit</td>
+              <td>Resolve time = your commit cadence (e.g. every 2–10 s)</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          Example: you set <code>max_staleness = INTERVAL 15 MINUTE</code> and a flash sale suddenly pushes 10× events.
+          The thin pipe still lands rows into the base table in seconds.
+          BI tiles querying the MV do <strong>not</strong> each re-scan the entire hot partition on every refresh —
+          they resolve within the 15‑minute staleness envelope, so query latency stays flat while ingest spikes.
+          If a stakeholder needs “right now” revenue during the sale, point them at a base-table monitor with a partition filter — not at every executive dashboard.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 09 — Resolve timelines under a high-scale burst</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  Burst["High-scale Kafka burst"] --> Pipe["Thin pipe append"]
+  Pipe --> Base["Base table visible<br/>~seconds"]
+  Base --> Alert["Realtime alert query<br/>reads base"]
+  Base --> MV["Materialized view"]
+  MV --> Budget{"Within max_staleness?"}
+  Budget -->|yes| Dash["Dashboard resolves<br/>stable · cheap"]
+  Budget -->|refresh due| Refresh["Incremental refresh"]
+  Refresh --> Dash
+
+  style Burst fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style Pipe fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style Base fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Alert fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style MV fill:#f8fafc,stroke:#64748b,color:#334155
+  style Dash fill:#ecfdf8,stroke:#0f766e,color:#14201b
+            </pre>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 10 — Fresh writes, intentionally stale reads</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart LR
+  Kafka["Kafka"] -->|"seconds SLA"| Pipe["Thin pipe"]
+  Pipe --> Table["BQ base table<br/>partitioned"]
+  Table -->|"latest"| Live["Ops / alerting<br/>query base"]
+  Table -->|"max_staleness"| MV["Materialized view"]
+  MV -->|"cheap · stable"| BI["BI dashboards"]
+
+  style Kafka fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Pipe fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style Table fill:#f8fafc,stroke:#64748b,color:#334155
+  style Live fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style MV fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style BI fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>Design split.</strong> Optimize the write path for memory-efficient freshness (stream type + flush).
+          Optimize the read path with partition filters and an explicit <code>max_staleness</code> budget.
+          At high scale, staleness is not “bad data” — it is how you keep time-to-resolve predictable.
+        </div>
+
+        <h2>Closing</h2>
+        <p>
+          The thin pipe is a bet on the right tool for Kafka drains:
+          protobuf over gRPC, the right Storage Write stream type (default / committed / pending / buffered), CDC upserts when entities mutate,
+          Kubernetes for elastic scale, and partitioned tables plus <code>max_staleness</code> so analytics can be deliberately, productively stale.
+        </p>
+        <p>
+          Keep Spark and Flink for stateful stream brains. For the faucet into BigQuery, ship a thin pipe.
+        </p>
+
+
+        <section class="reactions prose-wrap" data-reactions data-article-id="topics/data/thin-pipe-kafka-bigquery">
+          <p class="reactions-note">Was this helpful?</p>
+          <div class="reactions-buttons" role="group" aria-label="Rate this article">
+            <button type="button" class="reaction-btn" data-reaction="like" aria-label="Like" aria-pressed="false">
+              <span class="reaction-icon" aria-hidden="true">👍</span>
+              <span class="reaction-count">0</span>
+            </button>
+            <button type="button" class="reaction-btn" data-reaction="dislike" aria-label="Dislike" aria-pressed="false">
+              <span class="reaction-icon" aria-hidden="true">👎</span>
+              <span class="reaction-count">0</span>
+            </button>
+            <button type="button" class="reaction-btn" data-reaction="love" aria-label="Double like" aria-pressed="false">
+              <span class="reaction-icon" aria-hidden="true">👍👍</span>
+              <span class="reaction-count">0</span>
+            </button>
+          </div>
+        </section>
+
+
+        <p style="margin-top: 2.5rem;">
+          <a class="btn btn-ghost" href="../../../topics/data/">← Back to topic</a>
+          <a class="btn btn-ghost" href="../../../" style="margin-left:0.5rem">Home</a>
+        </p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <div class="footer-brand">Tech Blog by Dip</div>
+        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span></p>
+      </div>
+      <p class="footer-copy">Deployed on GitHub Pages</p>
+    </div>
+  </footer>
+
+  <script src="../../../assets/js/reactions-config.example.js"></script>
+  <script src="../../../assets/js/reactions.js"></script>
+  <script src="../../../assets/js/main.js"></script>
+</body>
+</html>
