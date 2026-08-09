@@ -8,10 +8,7 @@ Technical essays on distributed systems, AI, data, and ML at scale. Static site 
 ├── index.html
 ├── assets/
 │   ├── css/styles.css
-│   └── js/
-│       ├── main.js
-│       ├── reactions.js
-│       └── reactions-config.example.js
+│   └── js/main.js
 ├── topics/
 │   ├── ai/
 │   │   ├── index.html              # Topic hub
@@ -35,12 +32,6 @@ Technical essays on distributed systems, AI, data, and ML at scale. Static site 
 | Data | `/topics/data/` | `/topics/data/thin-pipe-kafka-bigquery/` |
 | HLD | `/topics/hld/` | — |
 | LLD | `/topics/lld/` | — |
-
-## Reactions (like / dislike / double like)
-
-**On GitHub Pages today:** reactions work via `localStorage` — each visitor's vote is saved on their device.
-
-**Global counts across all readers** need a small external store (e.g. Supabase free tier). Copy `assets/js/reactions-config.example.js` → `reactions-config.js` and configure — see `internal/README.md`.
 
 ## Local preview
 
