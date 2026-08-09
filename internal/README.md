@@ -3,3 +3,4 @@
 This folder is excluded from the GitHub Pages build artifact.
 
 - `typography-ui-spec.md` — typography and UI specification
+- `hld-article-format.md` — HLD essay structure and panel layout

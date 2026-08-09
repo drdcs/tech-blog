@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>The Dispatch Plane — Distributed Job Scheduler HLD — Tech Blog by Dip</title>
+  <meta name="description" content="High-level design for a distributed job scheduler: lease-based dispatch, failure recovery, horizontal scale, and the control-plane/data-plane split — informed by Borg, Omega, and production constraints." />
+  <meta name="theme-color" content="#f8f9fa" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../../assets/css/styles.css" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      securityLevel: "loose",
+      flowchart: { curve: "basis", padding: 16, htmlLabels: true, nodeSpacing: 40, rankSpacing: 50 },
+      sequence: { actorMargin: 48, mirrorActors: false, bottomMarginAdjust: 8, messageMargin: 40 },
+      themeVariables: {
+        darkMode: false,
+        background: "#ffffff",
+        primaryColor: "#ecfdf8",
+        primaryTextColor: "#14201b",
+        primaryBorderColor: "#0f766e",
+        secondaryColor: "#eff6ff",
+        secondaryTextColor: "#14201b",
+        secondaryBorderColor: "#0369a1",
+        tertiaryColor: "#f8fafc",
+        tertiaryTextColor: "#334155",
+        tertiaryBorderColor: "#64748b",
+        lineColor: "#5c6f66",
+        textColor: "#2a3a33",
+        mainBkg: "#ecfdf8",
+        nodeBorder: "#0f766e",
+        clusterBkg: "#f8fafc",
+        clusterBorder: "#cbd5e1",
+        titleColor: "#14201b",
+        actorBkg: "#ecfdf8",
+        actorBorder: "#0f766e",
+        actorTextColor: "#14201b",
+        actorLineColor: "#94a3b8",
+        signalColor: "#2a3a33",
+        signalTextColor: "#14201b",
+        labelBoxBkgColor: "#ffffff",
+        labelBoxBorderColor: "#0f766e",
+        labelTextColor: "#14201b",
+        loopTextColor: "#0369a1",
+        noteBkgColor: "#eff6ff",
+        noteTextColor: "#14201b",
+        noteBorderColor: "#0369a1",
+        activationBkgColor: "rgba(15,118,110,0.12)",
+        activationBorderColor: "#0f766e",
+        sequenceNumberColor: "#14201b"
+      }
+    });
+
+    const run = async () => {
+      const nodes = document.querySelectorAll(".mermaid");
+      await mermaid.run({ nodes });
+
+      document.querySelectorAll(".diagram-frame:not(.diagram-frame--dark) svg .edgePath path, .diagram-frame:not(.diagram-frame--dark) svg .flowchart-link").forEach((path, i) => {
+        path.style.strokeDasharray = "8 6";
+        path.style.animation = `dash-flow ${1.4 + (i % 3) * 0.2}s linear infinite`;
+      });
+
+      // Dark topology: solid white arrows, no animation
+      document.querySelectorAll(".diagram-frame--dark svg .edgePath path, .diagram-frame--dark svg .flowchart-link").forEach((path) => {
+        path.style.stroke = "#ffffff";
+        path.style.strokeWidth = "2.5px";
+        path.style.strokeDasharray = "none";
+        path.style.animation = "none";
+        path.style.filter = "drop-shadow(0 0 2px rgba(255,255,255,0.35))";
+      });
+      document.querySelectorAll(".diagram-frame--dark svg marker path").forEach((path) => {
+        path.setAttribute("fill", "#ffffff");
+        path.setAttribute("stroke", "#ffffff");
+      });
+      document.querySelectorAll(".diagram-frame--dark svg .edgeLabel").forEach((el) => {
+        const text = el.querySelector("span, p, foreignObject div");
+        if (text) {
+          text.style.color = "#e2e8f0";
+          text.style.fontSize = "11px";
+        }
+      });
+
+      // Sequence diagrams on light frames
+      document.querySelectorAll(".diagram-frame:not(.diagram-frame--dark) svg .messageText, .diagram-frame:not(.diagram-frame--dark) svg .loopText, .diagram-frame:not(.diagram-frame--dark) svg .labelText, .diagram-frame:not(.diagram-frame--dark) svg .noteText").forEach((el) => {
+        el.setAttribute("fill", "#14201b");
+      });
+      document.querySelectorAll(".diagram-frame:not(.diagram-frame--dark) svg .actor line, .diagram-frame:not(.diagram-frame--dark) svg .actor rect").forEach((el) => {
+        if (el.tagName === "rect") el.setAttribute("fill", "#ecfdf8");
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run);
+    } else {
+      run();
+    }
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="../../../" aria-label="Tech Blog by Dip home">
+        <span class="brand-mark">Tech Blog</span>
+        <span class="brand-tag">by Dip</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+      <ul class="nav-links">
+        <li><a href="../../../">Home</a></li>
+        <li><a href="../../../#topics">Topics</a></li>
+        <li><a href="../../../topics/hld/" aria-current="page">HLD</a></li>
+        <li><a href="../../../topics/ai/">AI</a></li>
+        <li><a href="../../../topics/data/">Data</a></li>
+        <li><a href="../../../about/">About</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <header class="article-hero">
+      <div class="prose-wrap">
+        <div class="article-meta">
+          <span class="pill">High-Level Design</span>
+          <span>Distributed Systems</span>
+          <span>28 min read</span>
+          <span>Aug 2026</span>
+        </div>
+        <h1 class="article-title">The Dispatch Plane</h1>
+        <p class="article-dek">
+          High-level architecture for a distributed job scheduler that runs and manages work at scale — lease-based dispatch, failure recovery without a global lock, and a control plane that shards before your metadata store becomes the bottleneck.
+        </p>
+      </div>
+    </header>
+
+    <article class="article-body prose-wrap">
+      <nav class="toc" aria-label="Table of contents">
+        <h2>On this page</h2>
+        <ol>
+          <li><a href="#design-details">Design details collection</a></li>
+          <li><a href="#back-of-envelope">Back-of-envelope</a></li>
+          <li><a href="#ingress">Ingress &amp; request routing</a></li>
+          <li><a href="#storage">Storage &amp; queue layers</a></li>
+          <li><a href="#api-db">API &amp; database design</a></li>
+          <li><a href="#e2e-flow">Core end-to-end flow</a></li>
+          <li><a href="#worker-placement">Worker placement &amp; failure</a></li>
+          <li><a href="#principles">Core design principles</a></li>
+          <li><a href="#pain-points">Pain points</a></li>
+          <li><a href="#conclusion">Conclusion</a></li>
+        </ol>
+      </nav>
+
+      <section id="design-details">
+        <h2>1. Design details collection</h2>
+        <p>
+          A scheduler is not a cron with a database. At scale it is a <strong>dispatch plane</strong> — a system that accepts intent, durably records it, assigns work under capacity constraints, and recovers when nodes lie.
+          The functional surface is deliberately small; the non-functional surface is where most designs live or die.
+        </p>
+
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label">Functional</span>
+            <h3>What the system must do</h3>
+            <ul>
+              <li><strong>Submit &amp; schedule jobs</strong> — accept job definitions (payload, queue, priority, retry policy, deadline) and place them into a durable queue with at-least-once delivery to workers.</li>
+              <li><strong>Dispatch under constraints</strong> — match pending work to worker capacity (CPU, GPU, region, concurrency slots) without double-assigning the same run.</li>
+              <li><strong>Track lifecycle</strong> — expose state transitions: <code>pending → leased → running → succeeded | failed | cancelled</code>, with idempotent status updates from workers.</li>
+              <li><strong>Recover from failure</strong> — re-queue work when a lease expires or a worker stops heartbeating; apply backoff and dead-letter after max attempts.</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--nfr">Non-functional</span>
+            <h3>What production will measure</h3>
+            <ul>
+              <li><strong>Throughput:</strong> 10,000 API requests/sec peak; 4,000 job submits/sec sustained at peak.</li>
+              <li><strong>Dispatch latency:</strong> p99 &lt; 150 ms from enqueue (Redis) to lease grant under normal load.</li>
+              <li><strong>Availability:</strong> 99.95% API via multi-region GSLB; regional failover &lt; 60 s. Metadata RPO = 0 on Postgres commit.</li>
+              <li><strong>Consistency:</strong> Redis holds the hot queue; Postgres is system of record. Lease CAS in Redis; async durability flush to DB.</li>
+              <li><strong>Operability:</strong> per-tenant quotas, queue-level backpressure, Redis memory alerts per queue shard.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>Scope boundary.</strong> This design covers batch + latency-tolerant async work (ETL, ML training steps, report generation). Sub-second cron with strict wall-clock alignment is a different problem — add a separate timing wheel or defer to the cloud vendor's scheduler.
+        </div>
+      </section>
+
+      <section id="back-of-envelope">
+        <h2>2. Back-of-envelope discussion</h2>
+        <p>Design target: <strong>10,000 API requests/sec</strong> at peak. Split: 40% job submit, 35% status read, 25% worker callbacks (heartbeat + complete). Median run time <strong>45 s</strong>, metadata <strong>2 KB</strong>, 5% failure rate with 3 retries.</p>
+
+        <div class="hld-boe">
+          <h3>Orders of magnitude</h3>
+          <table>
+            <thead>
+              <tr><th>Quantity</th><th>Assumption</th><th>Result</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Peak API throughput</td><td>platform SLO</td><td>10,000 req/s</td></tr>
+              <tr><td>Job submit rate</td><td>40% of peak API</td><td>4,000 submits/s</td></tr>
+              <tr><td>Concurrent runs</td><td>4,000/s × 45 s duration</td><td>~180,000 active</td></tr>
+              <tr><td>Redis timer/buffer ops</td><td>ZADD + lease + scheduled pop</td><td>~12,000 ops/s</td></tr>
+              <tr><td>Message broker</td><td>4k publish + 4k consume/s</td><td>~8,000 msgs/s</td></tr>
+              <tr><td>Postgres writes</td><td>job config + status updates</td><td>~5,000 writes/s</td></tr>
+              <tr><td>Postgres reads</td><td>status polls (replica)</td><td>~3,500 reads/s</td></tr>
+              <tr><td>Cassandra writes</td><td>run events + audit log</td><td>~12,000 events/s</td></tr>
+              <tr><td>Metadata storage</td><td>Postgres 2 KB × daily jobs</td><td>~700 GB / month</td></tr>
+            </tbody>
+          </table>
+          <p>
+            The first bottleneck is usually <strong>Redis timer churn</strong> or <strong>broker partition throughput</strong> — not Postgres.
+            Redis holds the near-term scheduling window; the message broker carries durable execution intent to workers.
+            Cassandra absorbs high-volume run logs so Postgres never becomes a write-heavy event store.
+            At 10× (100k req/s), shard Redis, add broker partitions, and scale scheduler nodes before upsizing Postgres.
+          </p>
+        </div>
+      </section>
+
+      <section id="ingress">
+        <h2>3. Ingress &amp; request routing</h2>
+        <p>
+          Before work reaches a queue, traffic crosses four layers. Each layer has one job: get the request to the right regional app instance without pinning state to the edge.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 01 — Client → gateway → app services</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  subgraph Clients["Clients"]
+    CL["API clients · dashboards · webhooks"]
+  end
+
+  subgraph Edge["Global edge"]
+    GSLB["GSLB / Geo DNS"]
+    LB["L7 LB / API Gateway<br/>TLS · WAF · rate limits"]
+  end
+
+  subgraph App["App service layer"]
+    RN["Relay nodes<br/>ingress · auth · validate"]
+    TMS["Task management service<br/>job CRUD · config · status API"]
+    RT["Request router<br/>hash tenant_id · queue_id"]
+  end
+
+  CL --> GSLB --> LB --> RT
+  RT --> RN
+  RT --> TMS
+
+  style GSLB fill:#f8fafc,stroke:#64748b,color:#334155
+  style LB fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style RT fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style RN fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style TMS fill:#eff6ff,stroke:#0369a1,color:#14201b
+            </pre>
+          </div>
+        </div>
+
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label">Layer roles</span>
+            <h3>What each hop does</h3>
+            <ul>
+              <li><strong>GSLB</strong> — routes to the nearest healthy region; drains a region during failover.</li>
+              <li><strong>L7 LB / gateway</strong> — terminates TLS, applies WAF and per-tenant rate limits.</li>
+              <li><strong>Request router</strong> — sticky routing by <code>queue_id</code> or <code>tenant_id</code> for shard affinity.</li>
+              <li><strong>Relay nodes</strong> — lightweight ingress path: validate payload, enforce quotas, hand off to scheduling pipeline.</li>
+              <li><strong>Task management service</strong> — owns job/task configuration CRUD, status queries, cancel semantics.</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--nfr">Why split relay vs task mgmt</span>
+            <h3>Service boundary</h3>
+            <ul>
+              <li>Relay scales on <em>ingress QPS</em> — mostly stateless, CPU-bound validation.</li>
+              <li>Task management scales on <em>config complexity</em> — richer queries, policy evaluation, audit.</li>
+              <li>Both are stateless pods; all durable state lives in the four storage layers below.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="storage">
+        <h2>4. Storage &amp; queue layers</h2>
+        <p>
+          A production scheduler needs four distinct stores — each optimized for a different access pattern.
+          Collapsing them into one database is how teams end up with a Postgres cluster that cannot keep up with log writes
+          or a Redis instance pretending to be durable.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 02 — Four-store architecture: config · buffer · execute · observe</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  subgraph Ingress["App services"]
+    RN["Relay nodes"]
+    TMS["Task management"]
+    SCH["Scheduler nodes"]
+    WRK["Worker nodes"]
+  end
+
+  subgraph Config["Relational DB — PostgreSQL"]
+    PG[("Task / job config<br/>schedules · retry policy · state")]
+  end
+
+  subgraph Buffer["In-memory — Redis Cluster"]
+    RD[("Timers · priority buffer<br/>lease keys · near-term window")]
+  end
+
+  subgraph Execute["Message broker — Kafka / SQS"]
+    MQ[("Durable execution queue<br/>partitioned by queue_id")]
+  end
+
+  subgraph Observe["Wide-column — Cassandra"]
+    CS[("Run logs · history · audit<br/>append-only events")]
+  end
+
+  subgraph Target["Execution target"]
+    TG["HTTP webhook · internal svc · batch sink"]
+  end
+
+  RN --> TMS
+  TMS --> PG
+  TMS --> RD
+  SCH --> RD
+  SCH -->|"publish ready runs"| MQ
+  MQ -->|"consume"| WRK
+  WRK --> TG
+  WRK -->|"status update"| PG
+  WRK -->|"event stream"| CS
+  TMS -.->|"read status"| PG
+
+  style PG fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style RD fill:#fef3c7,stroke:#d97706,color:#14201b
+  style MQ fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style CS fill:#f3e8ff,stroke:#7c3aed,color:#14201b
+  style SCH fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style WRK fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style TG fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--db">PostgreSQL</span>
+            <h3>Relational DB — task / job config</h3>
+            <ul>
+              <li>System of record for job definitions, schedules, retry policy, and current run state.</li>
+              <li>Strong consistency on config writes; read replicas for status API.</li>
+              <li>Small rows (~2 KB metadata); not used for high-volume event logging.</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--nfr">Redis</span>
+            <h3>In-memory — timer &amp; scheduling buffer</h3>
+            <ul>
+              <li><strong>Timers</strong> — sorted sets keyed by <code>fire_at</code> for delayed and cron-style jobs.</li>
+              <li><strong>Buffer</strong> — near-term priority queue window (next N minutes of work).</li>
+              <li><strong>Leases</strong> — short-lived claim keys while scheduler hands off to the broker.</li>
+              <li>Rebuilt from Postgres on cold start; not durable across full cluster loss.</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label">Message broker</span>
+            <h3>Durable execution queue</h3>
+            <ul>
+              <li>Scheduler nodes publish <code>run_id + payload_ref</code> when a job is ready to execute.</li>
+              <li>Partitioned by <code>queue_id</code> — workers in a consumer group pull with at-least-once delivery.</li>
+              <li>Decouples scheduling decisions from execution rate; absorbs worker slowdown without blocking Redis.</li>
+              <li>Dead-letter topic for poison messages after max retries.</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--db">Cassandra</span>
+            <h3>Wide-column store — logs &amp; history</h3>
+            <ul>
+              <li>Append-only run events: <code>scheduled</code>, <code>started</code>, <code>heartbeat</code>, <code>completed</code>, <code>failed</code>.</li>
+              <li>Partition key <code>(tenant_id, job_id)</code>; cluster key <code>event_time</code> for time-range scans.</li>
+              <li>High write throughput (~12k events/s at peak) without touching Postgres hot rows.</li>
+              <li>Retention policy per tenant; cheap historical queries for debugging and SLA reporting.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>Separation rule.</strong> Postgres answers "what should run and what state is it in?" Redis answers "what fires in the next 60 seconds?" The broker answers "what is waiting to execute durably?" Cassandra answers "what happened, in order?"
+        </div>
+      </section>
+
+      <section id="api-db">
+        <h2>5. API &amp; database design</h2>
+        <p>
+          The API is the contract between product teams and the dispatch plane.
+          Writes land in Postgres (config) and Redis (timer/buffer); execution handoff goes through the message broker.
+        </p>
+
+        <span class="hld-panel-label hld-panel-label--api">API surface</span>
+        <div class="api-table-wrap">
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Endpoint</th>
+                <th>Purpose</th>
+                <th>Idempotent</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="method method--post">POST</span></td>
+                <td><code>/v1/jobs</code></td>
+                <td>Submit job. Writes config to Postgres; seeds Redis timer/buffer. Header: <code>Idempotency-Key</code>.</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td><span class="method method--get">GET</span></td>
+                <td><code>/v1/jobs/{job_id}</code></td>
+                <td>Job status + latest run attempts. Read from Postgres replica.</td>
+                <td>—</td>
+              </tr>
+              <tr>
+                <td><span class="method method--post">POST</span></td>
+                <td><code>/v1/jobs/{job_id}/cancel</code></td>
+                <td>Cooperative cancel. Revokes Redis lease; marks run cancelled in Postgres.</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td><span class="method method--post">POST</span></td>
+                <td><code>/v1/workers/register</code></td>
+                <td>Worker advertises capacity tags (region, gpu, slots). Stored in Redis hash + Postgres.</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td><span class="method method--post">POST</span></td>
+                <td><code>/v1/workers/{worker_id}/heartbeat</code></td>
+                <td>Extend lease TTL in Redis; report slot usage. Internal gRPC from worker to scheduler shard.</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td><span class="method method--post">POST</span></td>
+                <td><code>/v1/runs/{run_id}/complete</code></td>
+                <td>Terminal state + output ref. Updates Postgres; appends completion event to Cassandra.</td>
+                <td>Yes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:0.92rem;color:var(--mist);margin-top:-0.5rem;">
+          Workers consume from the message broker internally — not through the public L7 path.
+        </p>
+
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--db">PostgreSQL tables</span>
+            <h3>Relational — job config &amp; state</h3>
+            <ul>
+              <li><strong><code>jobs</code></strong> — immutable intent: <code>job_id</code>, <code>queue_id</code>, <code>schedule_cron</code>, <code>priority</code>, <code>payload_ref</code>, <code>retry_policy</code>. PK: <code>job_id</code>.</li>
+              <li><strong><code>runs</code></strong> — execution attempts: <code>run_id</code>, <code>job_id</code>, <code>state</code>, <code>attempt</code>, <code>worker_id</code>, <code>worker_host</code>, <code>last_heartbeat_at</code>, <code>scheduled_at</code>, <code>completed_at</code>. Index: <code>(queue_id, state, priority DESC)</code> and <code>(worker_id) WHERE state = 'running'</code>.</li>
+              <li><strong><code>queues</code></strong> — tenant queue config: concurrency caps, broker topic mapping, retention policy.</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--db">Cassandra + broker</span>
+            <h3>Events &amp; execution handoff</h3>
+            <ul>
+              <li><strong><code>run_events</code></strong> (Cassandra) — <code>(tenant_id, job_id)</code> partition; columns: <code>event_time</code>, <code>event_type</code>, <code>run_id</code>, <code>detail</code>.</li>
+              <li><strong><code>execution_queue</code></strong> (Kafka topic) — message: <code>{run_id, job_id, payload_ref, attempt}</code>. Partitioned by <code>queue_id</code>.</li>
+              <li><strong><code>dlq_topic</code></strong> (Kafka) — poison messages after max retries; mirrored in Postgres <code>dead_letter</code> table for ops UI.</li>
+            </ul>
+          </div>
+        </div>
+
+        <p>Scheduler handoff — Redis timer fires, broker receives durable intent:</p>
+<pre><code>-- Scheduler node: pop due job from Redis timer ZSET
+-- 1. ZRANGEBYSCORE timers:{queue_id} -inf {now} LIMIT 0 1
+-- 2. Publish to Kafka topic execution.{queue_id}
+-- 3. ZREM timer key; UPDATE runs SET state='queued' in Postgres
+
+await producer.send("execution.etl", {
+  run_id, job_id, payload_ref, attempt, fire_at
+})</code></pre>
+      </section>
+
+      <section id="e2e-flow">
+        <h2>6. Core end-to-end flow</h2>
+        <p>
+          Three flows matter in production: the happy path, the failure path, and the scale path.
+          Google's Borg paper separates <em>cell</em> scheduling from cluster management; we apply the same split —
+          a stateless-ish <strong>scheduler shard</strong> per queue partition, and a <strong>worker fleet</strong> that owns execution.
+        </p>
+
+        <h3>6.1 End-to-end topology</h3>
+        <p>
+          Read left to right. Step numbers are shown in each component corner.
+          See the legend below for a one-line description of each hop.
+        </p>
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 03 — End-to-end topology (numbered flow)</p>
+          <div class="diagram-frame diagram-frame--dark diagram-frame--wide">
+            <pre class="mermaid" data-diagram="topology">
+flowchart LR
+  CL["&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;①&lt;/span&gt;&lt;br/&gt;&lt;b&gt;Client&lt;/b&gt;&lt;/div&gt;"]
+  GW["&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;②&lt;/span&gt;&lt;br/&gt;&lt;b&gt;API Gateway&lt;/b&gt;&lt;/div&gt;"]
+
+  subgraph Control[" "]
+    direction TB
+    RN["&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;③a&lt;/span&gt;&lt;br/&gt;&lt;b&gt;Relay&lt;/b&gt;&lt;/div&gt;"]
+    TMS["&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;③b&lt;/span&gt;&lt;br/&gt;&lt;b&gt;Task mgmt&lt;/b&gt;&lt;/div&gt;"]
+  end
+
+  subgraph Stores[" "]
+    direction TB
+    RD[("&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;④a&lt;/span&gt;&lt;br/&gt;&lt;b&gt;Redis&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:10px'&gt;timers · buffer&lt;/span&gt;&lt;/div&gt;")]
+    PG[("&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;④b&lt;/span&gt;&lt;br/&gt;&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:10px'&gt;config · state&lt;/span&gt;&lt;/div&gt;")]
+  end
+
+  SCH["&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;⑤&lt;/span&gt;&lt;br/&gt;&lt;b&gt;Scheduler&lt;/b&gt;&lt;/div&gt;"]
+  MQ[["&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;⑥&lt;/span&gt;&lt;br/&gt;&lt;b&gt;Message broker&lt;/b&gt;&lt;/div&gt;"]]
+  WRK["&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;⑦&lt;/span&gt;&lt;br/&gt;&lt;b&gt;Workers&lt;/b&gt;&lt;/div&gt;"]
+  TG(["&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;⑧&lt;/span&gt;&lt;br/&gt;&lt;b&gt;Target&lt;/b&gt;&lt;/div&gt;"])
+  CS[("&lt;div style='text-align:left;line-height:1.25'&gt;&lt;span style='font-size:9px;color:#94a3b8'&gt;⑨b&lt;/span&gt;&lt;br/&gt;&lt;b&gt;Cassandra&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:10px'&gt;logs · history&lt;/span&gt;&lt;/div&gt;")]
+
+  CL --> GW
+  GW --> RN
+  GW --> TMS
+  RN --> TMS
+  TMS --> RD
+  TMS --> PG
+  RD --> SCH
+  SCH --> MQ
+  MQ --> WRK
+  WRK --> TG
+  WRK -->|"⑨a status"| PG
+  WRK -->|"⑨b events"| CS
+
+  style CL fill:#134e4a,stroke:#2dd4bf,color:#f8fafc
+  style GW fill:#115e59,stroke:#5eead4,color:#f8fafc
+  style RN fill:#1e3a5f,stroke:#60a5fa,color:#f8fafc
+  style TMS fill:#1e3a5f,stroke:#60a5fa,color:#f8fafc
+  style RD fill:#78350f,stroke:#fbbf24,color:#f8fafc
+  style PG fill:#0c4a6e,stroke:#38bdf8,color:#f8fafc
+  style SCH fill:#065f46,stroke:#34d399,color:#f8fafc
+  style MQ fill:#134e4a,stroke:#2dd4bf,color:#f8fafc
+  style WRK fill:#1e3a5f,stroke:#60a5fa,color:#f8fafc
+  style TG fill:#334155,stroke:#94a3b8,color:#f8fafc
+  style CS fill:#4c1d95,stroke:#a78bfa,color:#f8fafc
+  style Control fill:transparent,stroke:#334155,color:#94a3b8
+  style Stores fill:transparent,stroke:#334155,color:#94a3b8
+            </pre>
+          </div>
+
+          <div class="diagram-legend" role="list">
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">① Client</span><span class="diagram-legend-desc">Submits jobs, checks status, cancels work.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">② API Gateway</span><span class="diagram-legend-desc">TLS, auth, rate limits — entry to the platform.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">③a Relay</span><span class="diagram-legend-desc">Validates payload and enforces quotas.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">③b Task mgmt</span><span class="diagram-legend-desc">Job CRUD, schedules, status API.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">④a Redis</span><span class="diagram-legend-desc">High-speed timers and scheduling buffer.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">④b PostgreSQL</span><span class="diagram-legend-desc">Job config and authoritative run state.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑤ Scheduler</span><span class="diagram-legend-desc">Pops due timers, publishes to broker.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑥ Message broker</span><span class="diagram-legend-desc">Durable execution queue (at-least-once).</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑦ Workers</span><span class="diagram-legend-desc">Consume, execute, heartbeat, record worker_id.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑧ Target</span><span class="diagram-legend-desc">HTTP webhook or internal API — real side effect.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑨a → PostgreSQL</span><span class="diagram-legend-desc">Workers write run status back.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑨b → Cassandra</span><span class="diagram-legend-desc">Append-only run events and history.</span></div>
+          </div>
+        </div>
+
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label">Left → right (order)</span>
+            <ol>
+              <li><strong>①–②</strong> Client → API Gateway</li>
+              <li><strong>③a–③b</strong> Relay + Task management</li>
+              <li><strong>④a–④b</strong> Redis timers + PostgreSQL config</li>
+              <li><strong>⑤–⑧</strong> Scheduler → Broker → Workers → Target</li>
+              <li><strong>⑨a–⑨b</strong> Workers write status + events back</li>
+            </ol>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--nfr">Stores (by role)</span>
+            <ul>
+              <li><strong>Redis</strong> — near-term timers and buffer (volatile, fast).</li>
+              <li><strong>PostgreSQL</strong> — job config and authoritative run state (incl. <code>worker_id</code>).</li>
+              <li><strong>Message broker</strong> — durable handoff from schedule → execute.</li>
+              <li><strong>Cassandra</strong> — append-only logs and history (high write volume).</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>6.2 Happy path — submit to success</h3>
+        <p>Split into two phases so the sequence stays readable. Phase A is config write; Phase B is execution.</p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 04a — Phase A: client submits job</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+sequenceDiagram
+  box rgba(239,246,255,0.5) Submit
+    participant C as Client
+    participant TMS as Task mgmt
+  end
+  box rgba(236,253,248,0.5) Stores
+    participant PG as PostgreSQL
+    participant R as Redis
+  end
+
+  C->>+TMS: POST /v1/jobs
+  TMS->>PG: INSERT job + run
+  TMS->>R: ZADD timer key
+  TMS-->>-C: 202 Accepted
+            </pre>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 04b — Phase B: schedule, execute, complete</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+sequenceDiagram
+  box rgba(236,253,248,0.5) Schedule
+    participant R as Redis
+    participant SCH as Scheduler
+    participant MQ as Broker
+  end
+  box rgba(239,246,255,0.5) Execute
+    participant W as Worker
+    participant TG as Target
+  end
+  box rgba(243,232,255,0.5) Observe
+    participant PG as PostgreSQL
+    participant CS as Cassandra
+  end
+
+  SCH->>R: pop due timer
+  SCH->>MQ: publish run
+  SCH->>PG: state = queued
+  SCH->>CS: event queued
+
+  W->>MQ: consume
+  W->>PG: state = running, worker_id
+  W->>CS: event started
+  W->>TG: HTTP execute
+  TG-->>W: 200 OK
+  W->>PG: state = succeeded
+  W->>CS: event completed
+  W->>MQ: commit offset
+            </pre>
+          </div>
+        </div>
+
+        <h3 id="worker-placement">6.3 Worker placement — which node runs what?</h3>
+        <p>
+          This is the question every on-call engineer asks first. The answer lives in three places — none of them guessed.
+        </p>
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label">Authoritative state</span>
+            <h3>Postgres <code>runs</code> row</h3>
+            <ul>
+              <li>When a worker consumes a broker message, it immediately writes <code>worker_id</code>, <code>worker_host</code>, <code>state = running</code>, and <code>last_heartbeat_at</code> to Postgres.</li>
+              <li><code>GET /v1/jobs/{job_id}</code> and <code>GET /v1/runs/{run_id}</code> return the assigned worker — this is what the ops UI shows.</li>
+              <li>Index <code>(worker_id) WHERE state = 'running'</code> answers "what is this node doing right now?" in one query.</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--nfr">Fast lookup</span>
+            <h3>Redis worker registry</h3>
+            <ul>
+              <li><code>HSET worker:{worker_id}</code> — host, pool, region, free slots, <code>last_seen</code>.</li>
+              <li><code>SADD worker:{worker_id}:runs</code> — active <code>run_id</code> set; removed on complete.</li>
+              <li>Sweeper scans workers where <code>last_seen &gt; 30s ago</code> — marks node suspect before Postgres is updated.</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>6.4 Failure path — worker node goes down</h3>
+        <p>
+          A worker dying mid-run is not exceptional — it is a design input. The system must detect it, surface which jobs were affected, and recover without human intervention.
+        </p>
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 05 — Worker crash: detect, surface, redeliver</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+sequenceDiagram
+  box rgba(239,246,255,0.5) Dead worker
+    participant W1 as Worker A
+  end
+  box rgba(236,253,248,0.5) Platform
+    participant SW as Sweeper
+    participant PG as PostgreSQL
+    participant MQ as Broker
+    participant CS as Cassandra
+  end
+  box rgba(239,246,255,0.5) Healthy worker
+    participant W2 as Worker B
+  end
+
+  W1->>MQ: consume run-42
+  W1->>PG: running on worker-A
+  Note over W1: node killed — heartbeats stop
+
+  SW->>PG: worker-A status = suspect
+  SW->>PG: run-42 last_worker = A
+  SW->>CS: event worker_lost
+
+  Note over MQ: offset not committed
+  MQ->>W2: redeliver run-42
+  W2->>PG: check idempotency
+  alt already succeeded
+    W2->>MQ: commit offset
+  else retry allowed
+    W2->>PG: attempt += 1, worker_id = B
+    W2->>W2: execute
+    W2->>PG: succeeded
+    W2->>MQ: commit offset
+  else max retries
+    W2->>MQ: send to DLQ
+    W2->>PG: dead_letter
+  end
+            </pre>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>What the app guarantees.</strong> You always know <em>which worker last claimed a run</em> via Postgres. You detect failure via missed heartbeats (Redis registry + sweeper), not by polling the broker. Redelivery is the broker's job; idempotency is the worker's job. If the target side effect already happened (payment sent), the retry path must read Postgres/Cassandra before re-executing.
+        </div>
+
+        <h3>6.5 Scale path — partition routing</h3>
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 06 — Scale each layer independently</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart LR
+  TMS1["Task mgmt"] --> PG[("PostgreSQL")]
+  TMS1 --> R1["Redis A"]
+  TMS2["Task mgmt"] --> R2["Redis B"]
+  R1 --> S1["Scheduler"]
+  R2 --> S2["Scheduler"]
+  S1 --> K1["Broker p0-7"]
+  S2 --> K2["Broker p8-15"]
+  K1 --> W1["Workers α"]
+  K2 --> W2["Workers β"]
+  W1 --> CS[("Cassandra")]
+  W2 --> CS
+
+  style TMS1 fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#14201b
+  style TMS2 fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#14201b
+  style R1 fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#14201b
+  style R2 fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#14201b
+  style S1 fill:#ecfdf8,stroke:#0f766e,stroke-width:2px,color:#14201b
+  style S2 fill:#ecfdf8,stroke:#0f766e,stroke-width:2px,color:#14201b
+  style K1 fill:#ecfdf8,stroke:#0f766e,stroke-width:2px,color:#14201b
+  style K2 fill:#ecfdf8,stroke:#0f766e,stroke-width:2px,color:#14201b
+  style W1 fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#14201b
+  style W2 fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#14201b
+  style CS fill:#f3e8ff,stroke:#7c3aed,stroke-width:2px,color:#14201b
+  style PG fill:#eff6ff,stroke:#0369a1,stroke-width:2px,color:#14201b
+            </pre>
+          </div>
+        </div>
+
+        <p>
+          <strong>Redis</strong> shards by <code>queue_id</code> for timer/buffer ops.
+          <strong>Broker partitions</strong> align with queue affinity — scheduler publishes, workers consume in groups.
+          <strong>Cassandra</strong> scales write throughput for run history independently of Postgres.
+          Never scale all four stores as one unit.
+        </p>
+      </section>
+
+      <section id="principles">
+        <h2>7. Core design principles</h2>
+        <p>These are the rules we enforce in design review — each borrowed from a production lineage, not a blog checklist.</p>
+
+        <div class="hld-panel-grid hld-panel-grid--3">
+          <div class="hld-principle">
+            <strong>Four stores, four jobs</strong>
+            <p>Postgres for config, Redis for timers, broker for durable execution, Cassandra for history — never merge write paths.</p>
+            <p class="trade">Trade-off: four systems to operate; each scales independently under real load.</p>
+          </div>
+          <div class="hld-principle">
+            <strong>Broker decouples schedule from execute</strong>
+            <p>Scheduler publishes intent; workers consume at their own rate. Redis timers stay small and fast.</p>
+            <p class="trade">Trade-off: at-least-once delivery; workers must be idempotent.</p>
+          </div>
+          <div class="hld-principle">
+            <strong>Separate intent from execution</strong>
+            <p>Job metadata (small, transactional) lives in the DB; payloads (large, immutable) live in object storage.</p>
+            <p class="trade">Trade-off: two systems to operate; essential past ~100 KB payloads.</p>
+          </div>
+          <div class="hld-principle">
+            <strong>Shard by queue, not by job</strong>
+            <p>Route <code>hash(queue_id)</code> to scheduler shards so hot tenants don't stall cold ones.</p>
+            <p class="trade">Trade-off: cross-queue fairness needs a separate global priority layer (defer v2).</p>
+          </div>
+          <div class="hld-principle">
+            <strong>State machine, not flags</strong>
+            <p>Runs transition through enumerated states with allowed edges; no ad-hoc boolean columns.</p>
+            <p class="trade">Trade-off: more ceremony in code; prevents "stuck in limbo" bugs at scale.</p>
+          </div>
+          <div class="hld-principle">
+            <strong>Push backpressure to submitters</strong>
+            <p>When queue depth exceeds SLO, return <code>429</code> or delay accept — don't buffer unbounded hope.</p>
+            <p class="trade">Trade-off: callers need retry logic; platform survives traffic spikes.</p>
+          </div>
+          <div class="hld-principle">
+            <strong>Observable poison</strong>
+            <p>Dead-letter with reason codes (<code>timeout</code>, <code>oom</code>, <code>bad_payload</code>) — operators need triage, not grep.</p>
+            <p class="trade">Trade-off: DLQ hygiene becomes an on-call duty; still cheaper than silent loss.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="pain-points">
+        <h2>8. Pain points</h2>
+        <p>
+          These are not abstract distributed-systems concerns — they are specific failure modes of <em>this</em> app shape:
+          relay + task management up front, Redis timers in the middle, broker handoff, stateless workers at the edge.
+        </p>
+
+        <div class="hld-panel hld-panel--wide">
+          <div class="hld-pain">
+            <div>
+              <strong>Task management becomes a dumping ground</strong>
+              <p>Teams push retry logic, payload validation, and quota checks into task management because it owns the API. Within a quarter it is a god-service. Keep it thin: validate, persist config, seed Redis — push execution policy to scheduler and workers.</p>
+            </div>
+          </div>
+          <div class="hld-pain">
+            <div>
+              <strong>Redis timer drift under load</strong>
+              <p>At 10k req/s the scheduler cannot pop every due timer in one tick. Jobs fire late — not failed, just delayed. The app needs a visible <code>scheduled_at vs fired_at</code> skew metric; product teams will treat silent delay as a bug.</p>
+            </div>
+          </div>
+          <div class="hld-pain">
+            <div>
+              <strong>Orphaned runs after worker loss</strong>
+              <p>Postgres says <code>running</code> but the worker is gone. Without a sweeper that reconciles Redis heartbeats against <code>runs.worker_id</code>, jobs sit stuck until manual intervention. This is the most common on-call page for new scheduler deployments.</p>
+            </div>
+          </div>
+          <div class="hld-pain">
+            <div>
+              <strong>Broker lag looks like a scheduler bug</strong>
+              <p>Users see "queued" in Postgres but nothing executes. Root cause is often consumer lag, not Redis or the scheduler. The app must expose broker depth per queue in the same dashboard as job status — otherwise ops debugs the wrong layer.</p>
+            </div>
+          </div>
+          <div class="hld-pain">
+            <div>
+              <strong>Duplicate side effects on redelivery</strong>
+              <p>Worker A charges a card, crashes before <code>complete</code>, Worker B retries. The app layer must check <code>run_id</code> idempotency before calling the target — the scheduler cannot do this for you. Document it in the worker SDK, not a wiki page.</p>
+            </div>
+          </div>
+          <div class="hld-pain">
+            <div>
+              <strong>Cassandra history without a query model</strong>
+              <p>Dumping every heartbeat to Cassandra feels safe until someone asks "show me all failed runs for tenant X last Tuesday." Define query patterns upfront — partition by <code>(tenant_id, job_id)</code>, not by event type alone.</p>
+            </div>
+          </div>
+          <div class="hld-pain">
+            <div>
+              <strong>Multi-tenant fairness in one broker topic</strong>
+              <p>A single <code>execution.default</code> topic lets one tenant's backfill starve another's alerts. The app needs per-tenant concurrency caps enforced at consume time, not just at submit time.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="conclusion">
+        <h2>9. Conclusion</h2>
+        <div class="hld-panel hld-panel--wide">
+          <p>
+            A distributed scheduler at 10k req/s is a <strong>four-store pipeline</strong>: PostgreSQL holds job config, Redis drives high-precision timers and the near-term buffer, a message broker carries durable execution intent, and Cassandra absorbs run history.
+            Relay and task-management services handle submit; scheduler and worker nodes scale independently on the execute path.
+          </p>
+          <p>
+            Build this when you need tenant-specific queues, custom capacity tags, or cost control that managed offerings (Cloud Scheduler, Step Functions) cannot match.
+            Buy Temporal or a managed workflow engine when you need durable sagas, human-in-the-loop, and versioned workflow code — that is a superset problem with a higher operational price tag.
+          </p>
+          <p>
+            If you remember one line: <em>Postgres remembers the plan, Redis times the plan, the broker delivers the plan, Cassandra records what happened.</em>
+          </p>
+        </div>
+
+        <p style="margin-top:1.5rem;font-size:0.92rem;color:var(--mist);">
+          Further reading: Google Borg (2015), Omega (2013), Mesos two-level scheduling (2010) — primary sources for cell scheduling, parallel schedulers, and framework isolation.
+        </p>
+      </section>
+
+      <p style="margin-top: 2.5rem;">
+        <a class="btn btn-ghost" href="../../../topics/hld/">← Back to HLD</a>
+        <a class="btn btn-ghost" href="../../../" style="margin-left:0.5rem">Home</a>
+      </p>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <div class="footer-brand">Tech Blog by Dip</div>
+        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span></p>
+      </div>
+      <p class="footer-copy">Deployed on GitHub Pages</p>
+    </div>
+  </footer>
+
+  <script src="../../../assets/js/main.js"></script>
+</body>
+</html>
