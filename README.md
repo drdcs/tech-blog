@@ -18,7 +18,10 @@ Technical essays on distributed systems, AI, data, and ML at scale. Static site 
 │   │   ├── index.html
 │   │   └── thin-pipe-kafka-bigquery/
 │   │       └── index.html
-│   ├── hld/index.html
+│   ├── hld/
+│   │   ├── index.html
+│   │   └── distributed-scheduler/
+│   │       └── index.html
 │   └── lld/index.html
 ├── internal/                       # Not deployed
 └── .github/workflows/pages.yml
@@ -30,7 +33,7 @@ Technical essays on distributed systems, AI, data, and ML at scale. Static site 
 |-------|-----|-------|
 | AI | `/topics/ai/` | `/topics/ai/mcp-vs-agents/` |
 | Data | `/topics/data/` | `/topics/data/thin-pipe-kafka-bigquery/` |
-| HLD | `/topics/hld/` | — |
+| HLD | `/topics/hld/` | `/topics/hld/distributed-scheduler/` |
 | LLD | `/topics/lld/` | — |
 
 ## Local preview

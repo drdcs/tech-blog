@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>The Dispatch Plane — Distributed Job Scheduler HLD — Tech Blog by Dip</title>
-  <meta name="description" content="High-level design for a distributed job scheduler: lease-based dispatch, failure recovery, horizontal scale, and the control-plane/data-plane split — informed by Borg, Omega, and production constraints." />
+  <title>Design a Distributed Job Scheduler — HLD — Tech Blog by Dip</title>
+  <meta name="description" content="High-level design for a distributed job scheduler: Redis timers, message broker execution, Postgres config, Cassandra logs, failure recovery, and horizontal scale." />
   <meta name="theme-color" content="#f8f9fa" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -130,7 +130,7 @@
           <span>28 min read</span>
           <span>Aug 2026</span>
         </div>
-        <h1 class="article-title">The Dispatch Plane</h1>
+        <h1 class="article-title">Design a Distributed Job Scheduler</h1>
         <p class="article-dek">
           High-level architecture for a distributed job scheduler that runs and manages work at scale — lease-based dispatch, failure recovery without a global lock, and a control plane that shards before your metadata store becomes the bottleneck.
         </p>
