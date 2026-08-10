@@ -1228,6 +1228,180 @@ pre code {
   height: auto;
 }
 
+/* Layered architecture flow (SVG) — scheduler topology */
+.diagram-frame--arch {
+  padding: 1rem 0.75rem 1.15rem;
+}
+
+.diagram-frame--arch::before {
+  display: none;
+}
+
+.arch-flow-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+}
+
+.arch-flow-svg .arch-lane {
+  fill: rgba(15, 23, 42, 0.55);
+  stroke-width: 1;
+}
+
+.arch-flow-svg .arch-lane--clients { stroke: #2dd4bf; }
+.arch-flow-svg .arch-lane--api { stroke: #60a5fa; }
+.arch-flow-svg .arch-lane--compute { stroke: #34d399; }
+.arch-flow-svg .arch-lane--storage { stroke: #38bdf8; }
+.arch-flow-svg .arch-lane--queue { stroke: #2dd4bf; stroke-dasharray: 6 4; }
+.arch-flow-svg .arch-lane--consumers { stroke: #94a3b8; }
+
+.arch-flow-svg .arch-lane-title {
+  fill: #e2e8f0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.arch-flow-svg .arch-node {
+  stroke-width: 2;
+}
+
+.arch-flow-svg .arch-node--clients { fill: #134e4a; stroke: #2dd4bf; }
+.arch-flow-svg .arch-node--api { fill: #1e3a5f; stroke: #60a5fa; }
+.arch-flow-svg .arch-node--compute { fill: #065f46; stroke: #34d399; }
+.arch-flow-svg .arch-node--redis { fill: #78350f; stroke: #fbbf24; }
+.arch-flow-svg .arch-node--postgres { fill: #0c4a6e; stroke: #38bdf8; }
+.arch-flow-svg .arch-node--cassandra { fill: #5b21b6; stroke: #c4b5fd; }
+.arch-flow-svg .arch-node--queue { fill: #134e4a; stroke: #2dd4bf; }
+.arch-flow-svg .arch-node--consumers { fill: #1e3a5f; stroke: #60a5fa; }
+.arch-flow-svg .arch-node--external { fill: #475569; stroke: #cbd5e1; }
+
+.arch-flow-svg .arch-node-label {
+  fill: #f8fafc;
+  font-family: Inter, sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+
+.arch-flow-svg .arch-node-sub {
+  fill: #e2e8f0;
+  font-family: Inter, sans-serif;
+  font-size: 7px;
+  text-anchor: middle;
+  opacity: 0.9;
+}
+
+.arch-flow-svg .arch-edge-label {
+  fill: #fde047;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 7px;
+  font-weight: 600;
+}
+
+.arch-flow-svg .arch-edge--sync {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 1.75;
+}
+
+.arch-flow-svg .arch-edge--async {
+  fill: none;
+  stroke: #2dd4bf;
+  stroke-width: 1.75;
+  stroke-dasharray: 7 5;
+  animation: dash-flow 1.5s linear infinite;
+}
+
+.arch-flow-svg .arch-queue-pulse {
+  fill: none;
+  stroke: #2dd4bf;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  opacity: 0.7;
+  animation: dash-flow 2s linear infinite reverse;
+}
+
+.arch-legend {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.65rem 1rem;
+  margin: 1rem 0 0;
+  padding: 0.85rem 1rem;
+  border-radius: 6px;
+  background: rgba(248, 250, 252, 0.06);
+  border: 1px solid #334155;
+  font-size: 0.75rem;
+}
+
+.arch-legend-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.arch-legend-title {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.arch-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #e2e8f0;
+  margin: 0;
+  line-height: 1.35;
+}
+
+.arch-swatch {
+  flex: 0 0 0.65rem;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.arch-swatch--clients { background: #134e4a; border-color: #2dd4bf; }
+.arch-swatch--api { background: #1e3a5f; border-color: #60a5fa; }
+.arch-swatch--compute { background: #065f46; border-color: #34d399; }
+.arch-swatch--storage { background: #0c4a6e; border-color: #38bdf8; }
+.arch-swatch--queue { background: #134e4a; border-color: #2dd4bf; }
+.arch-swatch--consumers { background: #475569; border-color: #cbd5e1; }
+
+.arch-line-sample {
+  flex: 0 0 1.5rem;
+  height: 0;
+  border-top: 2px solid #ffffff;
+}
+
+.arch-line-sample--async {
+  border-top: 2px dashed #2dd4bf;
+  animation: dash-flow 1.5s linear infinite;
+}
+
+@media (max-width: 640px) {
+  .arch-legend {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arch-flow-svg .arch-edge--async,
+  .arch-flow-svg .arch-queue-pulse,
+  .arch-line-sample--async {
+    animation: none;
+  }
+}
+
 .diagram-legend {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1294,6 +1468,42 @@ pre code {
 .mermaid svg {
   max-width: 100%;
   height: auto;
+}
+
+.diagram-frame--sequence {
+  background: #ffffff;
+  border-color: var(--line-strong);
+  box-shadow: 0 8px 28px rgba(20, 32, 27, 0.06);
+}
+
+.diagram-frame--sequence::before {
+  display: none;
+}
+
+.diagram-frame--sequence svg {
+  background: #ffffff;
+}
+
+.diagram-frame--sequence svg line,
+.diagram-frame--sequence svg .messageLine0,
+.diagram-frame--sequence svg .messageLine1,
+.diagram-frame--sequence svg path.messageLine0,
+.diagram-frame--sequence svg path.messageLine1 {
+  stroke: #000000 !important;
+}
+
+.diagram-frame--sequence svg marker path {
+  fill: #000000 !important;
+  stroke: #000000 !important;
+}
+
+.diagram-frame--sequence svg .messageText,
+.diagram-frame--sequence svg .loopText,
+.diagram-frame--sequence svg .labelText,
+.diagram-frame--sequence svg .noteText,
+.diagram-frame--sequence svg .actor text,
+.diagram-frame--sequence svg .sequenceNumber {
+  fill: #14201b !important;
 }
 
 .diagram-frame svg .messageText,

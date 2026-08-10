@@ -90,6 +90,21 @@
         el.style.fill = "#f8fafc";
       });
 
+      // Sequence diagrams — white frame, black arrows
+      document.querySelectorAll(".diagram-frame--sequence svg line").forEach((el) => {
+        el.setAttribute("stroke", "#000000");
+      });
+      document.querySelectorAll(".diagram-frame--sequence svg .messageLine0, .diagram-frame--sequence svg .messageLine1").forEach((el) => {
+        el.setAttribute("stroke", "#000000");
+      });
+      document.querySelectorAll(".diagram-frame--sequence svg marker path").forEach((el) => {
+        el.setAttribute("fill", "#000000");
+        el.setAttribute("stroke", "#000000");
+      });
+      document.querySelectorAll(".diagram-frame--sequence svg .messageText, .diagram-frame--sequence svg .loopText, .diagram-frame--sequence svg .labelText, .diagram-frame--sequence svg .noteText, .diagram-frame--sequence svg .actor text").forEach((el) => {
+        el.setAttribute("fill", "#14201b");
+      });
+
       // Sequence diagrams on light frames
       document.querySelectorAll(".diagram-frame:not(.diagram-frame--dark) svg .messageText, .diagram-frame:not(.diagram-frame--dark) svg .loopText, .diagram-frame:not(.diagram-frame--dark) svg .labelText, .diagram-frame:not(.diagram-frame--dark) svg .noteText").forEach((el) => {
         el.setAttribute("fill", "#14201b");
@@ -502,90 +517,166 @@ await producer.send("execution.etl", {
 
         <h3>6.1 End-to-end topology</h3>
         <p>
-          Mermaid flowchart — read top to bottom. Control and Stores are horizontal groupings on the spine.
-          Workers execute the target, then write status and events back to PostgreSQL and Cassandra.
+          High-level architecture — left to right across six layers. Solid arrows are synchronous request paths;
+          dashed teal arrows are asynchronous handoffs through the message broker.
         </p>
         <div class="diagram-block">
-          <p class="diagram-caption">Fig 03 — End-to-end topology (numbered flow)</p>
-          <div class="diagram-frame diagram-frame--dark">
-            <pre class="mermaid">
-flowchart TB
-  CL["1 Client"]
-  GW["2 API Gateway"]
+          <p class="diagram-caption">Fig 03 — End-to-end topology (layered architecture)</p>
+          <div class="diagram-frame diagram-frame--dark diagram-frame--arch">
+            <svg class="arch-flow-svg" viewBox="0 0 1040 320" width="100%" height="auto" role="img" aria-label="Layered job scheduler architecture: Clients, API ingestion, processing, storage and cache, async queue, consumers and external targets">
+              <defs>
+                <marker id="arch-arrow-sync" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#ffffff"/>
+                </marker>
+                <marker id="arch-arrow-async" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#2dd4bf"/>
+                </marker>
+              </defs>
 
-  subgraph CTRL["Control"]
-    direction LR
-    RN["3a Relay"]
-    TMS["3b Task mgmt"]
-    RN --> TMS
-  end
+              <!-- Layer bands -->
+              <rect class="arch-lane arch-lane--clients" x="8" y="36" width="148" height="248" rx="8"/>
+              <rect class="arch-lane arch-lane--api" x="164" y="36" width="168" height="248" rx="8"/>
+              <rect class="arch-lane arch-lane--compute" x="340" y="36" width="128" height="248" rx="8"/>
+              <rect class="arch-lane arch-lane--storage" x="476" y="36" width="188" height="248" rx="8"/>
+              <rect class="arch-lane arch-lane--queue" x="672" y="36" width="148" height="248" rx="8"/>
+              <rect class="arch-lane arch-lane--consumers" x="828" y="36" width="204" height="248" rx="8"/>
 
-  subgraph STR["Stores"]
-    direction LR
-    RD["4a Redis"]
-    PGC["4b PostgreSQL config"]
-    RD --> PGC
-  end
+              <text class="arch-lane-title" x="82" y="52" text-anchor="middle">1 · Clients</text>
+              <text class="arch-lane-title" x="248" y="52" text-anchor="middle">2 · API / Ingestion</text>
+              <text class="arch-lane-title" x="404" y="52" text-anchor="middle">3 · Processing</text>
+              <text class="arch-lane-title" x="570" y="52" text-anchor="middle">4 · Storage &amp; Cache</text>
+              <text class="arch-lane-title" x="746" y="52" text-anchor="middle">5 · Async Queue</text>
+              <text class="arch-lane-title" x="930" y="52" text-anchor="middle">6 · Consumers</text>
 
-  SCH["5 Scheduler"]
-  MQ["6 Message broker"]
-  WRK["7 Workers"]
-  TG["8 Target"]
-  PGS["9a PostgreSQL status"]
-  CS["9b Cassandra events"]
+              <!-- Nodes -->
+              <rect class="arch-node arch-node--clients" x="42" y="118" width="80" height="48" rx="6"/>
+              <text class="arch-node-label" x="82" y="140">Client</text>
+              <text class="arch-node-sub" x="82" y="154">submit · poll</text>
 
-  CL --> GW
-  GW --> RN
-  TMS --> RD
-  PGC --> SCH
-  SCH --> MQ
-  MQ --> WRK
-  WRK --> TG
-  WRK -->|status| PGS
-  WRK -->|events| CS
+              <rect class="arch-node arch-node--api" x="178" y="88" width="88" height="40" rx="6"/>
+              <text class="arch-node-label" x="222" y="106">API Gateway</text>
+              <text class="arch-node-sub" x="222" y="120">TLS · auth</text>
 
-  style CL fill:#134e4a,stroke:#2dd4bf,color:#f8fafc
-  style GW fill:#115e59,stroke:#5eead4,color:#f8fafc
-  style RN fill:#1e3a5f,stroke:#60a5fa,color:#f8fafc
-  style TMS fill:#1e3a5f,stroke:#60a5fa,color:#f8fafc
-  style RD fill:#78350f,stroke:#fbbf24,color:#f8fafc
-  style PGC fill:#0c4a6e,stroke:#38bdf8,color:#f8fafc
-  style SCH fill:#065f46,stroke:#34d399,color:#f8fafc
-  style MQ fill:#134e4a,stroke:#2dd4bf,color:#f8fafc
-  style WRK fill:#1e3a5f,stroke:#60a5fa,color:#f8fafc
-  style TG fill:#475569,stroke:#cbd5e1,color:#f8fafc
-  style PGS fill:#0c4a6e,stroke:#38bdf8,color:#f8fafc
-  style CS fill:#5b21b6,stroke:#c4b5fd,color:#f8fafc
-  style CTRL fill:#1e293b,stroke:#64748b,color:#cbd5e1
-  style STR fill:#1e293b,stroke:#64748b,color:#cbd5e1
-            </pre>
+              <rect class="arch-node arch-node--api" x="178" y="148" width="88" height="40" rx="6"/>
+              <text class="arch-node-label" x="222" y="166">Relay</text>
+              <text class="arch-node-sub" x="222" y="180">validate · quota</text>
+
+              <rect class="arch-node arch-node--api" x="178" y="208" width="88" height="40" rx="6"/>
+              <text class="arch-node-label" x="222" y="226">Task mgmt</text>
+              <text class="arch-node-sub" x="222" y="240">CRUD · schedule</text>
+
+              <rect class="arch-node arch-node--compute" x="354" y="138" width="100" height="48" rx="6"/>
+              <text class="arch-node-label" x="404" y="160">Scheduler</text>
+              <text class="arch-node-sub" x="404" y="174">dispatch</text>
+
+              <rect class="arch-node arch-node--redis" x="494" y="78" width="92" height="36" rx="6"/>
+              <text class="arch-node-label" x="540" y="95">Redis</text>
+              <text class="arch-node-sub" x="540" y="107">timers</text>
+
+              <rect class="arch-node arch-node--postgres" x="494" y="132" width="92" height="36" rx="6"/>
+              <text class="arch-node-label" x="540" y="149">PostgreSQL</text>
+              <text class="arch-node-sub" x="540" y="161">config · status</text>
+
+              <rect class="arch-node arch-node--cassandra" x="494" y="186" width="92" height="36" rx="6"/>
+              <text class="arch-node-label" x="540" y="203">Cassandra</text>
+              <text class="arch-node-sub" x="540" y="215">append-only log</text>
+
+              <rect class="arch-queue-pulse" x="688" y="126" width="116" height="64" rx="8"/>
+              <rect class="arch-node arch-node--queue" x="694" y="132" width="104" height="52" rx="6"/>
+              <text class="arch-node-label" x="746" y="154">Message</text>
+              <text class="arch-node-label" x="746" y="168">broker</text>
+
+              <rect class="arch-node arch-node--consumers" x="844" y="88" width="104" height="52" rx="6"/>
+              <text class="arch-node-label" x="896" y="108">Workers</text>
+              <text class="arch-node-sub" x="896" y="122">consume · lease</text>
+              <text class="arch-node-sub" x="896" y="134">heartbeat · retry</text>
+
+              <rect class="arch-node arch-node--external" x="844" y="168" width="104" height="52" rx="6"/>
+              <text class="arch-node-label" x="896" y="188">Target API</text>
+              <text class="arch-node-sub" x="896" y="202">webhook · HTTP</text>
+              <text class="arch-node-sub" x="896" y="214">side effect</text>
+
+              <!-- Sync edges -->
+              <path class="arch-edge--sync" d="M122,142 L178,108" marker-end="url(#arch-arrow-sync)"/>
+              <text class="arch-edge-label" x="145" y="118">submit</text>
+
+              <!-- API / Ingestion — vertical spine -->
+              <line x1="222" y1="128" x2="222" y2="148" class="arch-edge--sync"/>
+              <line x1="222" y1="188" x2="222" y2="208" class="arch-edge--sync"/>
+              <polygon points="218,145 222,152 226,145" fill="#ffffff"/>
+              <polygon points="218,205 222,212 226,205" fill="#ffffff"/>
+
+              <path class="arch-edge--sync" d="M266,228 C320,228 320,106 494,96" marker-end="url(#arch-arrow-sync)"/>
+              <text class="arch-edge-label" x="360" y="118">timers</text>
+
+              <path class="arch-edge--sync" d="M266,228 L494,150" marker-end="url(#arch-arrow-sync)"/>
+              <text class="arch-edge-label" x="370" y="188">config</text>
+
+              <path class="arch-edge--sync" d="M586,96 L454,162" marker-end="url(#arch-arrow-sync)"/>
+              <text class="arch-edge-label" x="520" y="122">due jobs</text>
+
+              <path class="arch-edge--sync" d="M896,140 L896,168" marker-end="url(#arch-arrow-sync)"/>
+              <text class="arch-edge-label" x="908" y="158">invoke</text>
+              <text class="arch-edge-label" x="908" y="168">payload</text>
+
+              <path class="arch-edge--sync" d="M844,114 C760,114 760,150 586,150" marker-end="url(#arch-arrow-sync)"/>
+              <text class="arch-edge-label" x="700" y="128">status</text>
+
+              <!-- Scheduler → Cassandra (audit / queued events) -->
+              <path class="arch-edge--sync" d="M454,168 L480,168 L480,204 L494,204" marker-end="url(#arch-arrow-sync)"/>
+              <text class="arch-edge-label" x="458" y="162">queued</text>
+
+              <!-- Workers → Cassandra (run lifecycle events) -->
+              <path class="arch-edge--sync" d="M844,128 L720,128 L720,204 L586,204" marker-end="url(#arch-arrow-sync)"/>
+              <text class="arch-edge-label" x="730" y="118">run events</text>
+
+              <!-- Async edges -->
+              <path class="arch-edge--async" d="M454,162 L694,158" marker-end="url(#arch-arrow-async)"/>
+              <text class="arch-edge-label" x="570" y="150">jobs</text>
+
+              <path class="arch-edge--async" d="M798,158 L844,114" marker-end="url(#arch-arrow-async)"/>
+              <text class="arch-edge-label" x="818" y="132">consume</text>
+
+              <path class="arch-edge--sync" d="M122,155 C122,290 222,248" marker-end="url(#arch-arrow-sync)"/>
+              <text class="arch-edge-label" x="130" y="278">poll status</text>
+            </svg>
+
+            <div class="arch-legend" role="list">
+              <div class="arch-legend-section">
+                <p class="arch-legend-title">Arrow styles</p>
+                <p class="arch-legend-row"><span class="arch-line-sample"></span>Synchronous path</p>
+                <p class="arch-legend-row"><span class="arch-line-sample arch-line-sample--async"></span>Asynchronous handoff</p>
+              </div>
+              <div class="arch-legend-section">
+                <p class="arch-legend-title">Key flows</p>
+                <p class="arch-legend-row">submit → config → timers → jobs → consume → invoke payload</p>
+                <p class="arch-legend-row">write-back: status (Postgres) · run events (Cassandra)</p>
+                <p class="arch-legend-row">read path: poll status (client)</p>
+              </div>
+            </div>
           </div>
 
           <div class="diagram-legend" role="list">
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">① Client</span><span class="diagram-legend-desc">Submits jobs, checks status, cancels work.</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">② API Gateway</span><span class="diagram-legend-desc">TLS, auth, rate limits — entry to the platform.</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">③a Relay</span><span class="diagram-legend-desc">Validates payload and enforces quotas.</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">③b Task mgmt</span><span class="diagram-legend-desc">Job CRUD, schedules, status API.</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">④a Redis</span><span class="diagram-legend-desc">High-speed timers and scheduling buffer.</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">④b PostgreSQL</span><span class="diagram-legend-desc">Job config and authoritative run state.</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑤ Scheduler</span><span class="diagram-legend-desc">Pops due timers, publishes to broker.</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑥ Message broker</span><span class="diagram-legend-desc">Durable execution queue (at-least-once).</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑦ Workers</span><span class="diagram-legend-desc">Consume, execute, heartbeat, record worker_id.</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑧ Target</span><span class="diagram-legend-desc">HTTP webhook or internal API — real side effect.</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑨a → PostgreSQL</span><span class="diagram-legend-desc">Workers write run status back.</span></div>
-            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">⑨b → Cassandra</span><span class="diagram-legend-desc">Append-only run events and history.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">Client</span><span class="diagram-legend-desc">Submits jobs and polls run status.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">API / Ingestion</span><span class="diagram-legend-desc">Gateway, relay validation, task CRUD.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">Scheduler</span><span class="diagram-legend-desc">Pops due Redis timers, publishes to broker.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">Message broker</span><span class="diagram-legend-desc">Durable async execution queue (at-least-once).</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">Workers → Target</span><span class="diagram-legend-desc">Pull run from broker, lease it, POST payload to webhook or internal API, record success/failure, then ack offset.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">Cassandra inputs</span><span class="diagram-legend-desc"><strong>Scheduler</strong> appends queued/audit events; <strong>Workers</strong> append started, completed, failed, and heartbeat events. Append-only — never updated in place.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">Write-back</span><span class="diagram-legend-desc">PostgreSQL holds authoritative run status; Cassandra holds the immutable event stream.</span></div>
           </div>
         </div>
 
         <div class="hld-panel-grid hld-panel-grid--2">
           <div class="hld-panel">
-            <span class="hld-panel-label">Top → bottom (order)</span>
+            <span class="hld-panel-label">Left → right (layers)</span>
             <ol>
-              <li><strong>1–2</strong> Client → API Gateway</li>
-              <li><strong>3a–3b</strong> Relay → Task management (Control)</li>
-              <li><strong>4a–4b</strong> Redis → PostgreSQL config (Stores)</li>
-              <li><strong>5–8</strong> Scheduler → Broker → Workers → Target</li>
-              <li><strong>9a–9b</strong> Workers → PostgreSQL (status) · Cassandra (events)</li>
+              <li><strong>Clients</strong> — submit jobs, poll status</li>
+              <li><strong>API / Ingestion</strong> — Gateway → Relay → Task mgmt</li>
+              <li><strong>Processing</strong> — Scheduler dispatches due work</li>
+              <li><strong>Storage &amp; Cache</strong> — Redis timers, Postgres config/status, Cassandra events</li>
+              <li><strong>Async Queue</strong> — broker decouples schedule from execute</li>
+              <li><strong>Consumers</strong> — Workers invoke Target APIs (webhook / HTTP), then ack broker offset</li>
             </ol>
           </div>
           <div class="hld-panel">
@@ -594,7 +685,7 @@ flowchart TB
               <li><strong>Redis</strong> — near-term timers and buffer (volatile, fast).</li>
               <li><strong>PostgreSQL</strong> — job config and authoritative run state (incl. <code>worker_id</code>).</li>
               <li><strong>Message broker</strong> — durable handoff from schedule → execute.</li>
-              <li><strong>Cassandra</strong> — append-only logs and history (high write volume).</li>
+              <li><strong>Cassandra</strong> — append-only run log; inputs from Scheduler (queued) and Workers (started · completed · failed).</li>
             </ul>
           </div>
         </div>
@@ -604,7 +695,7 @@ flowchart TB
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 04a — Phase A: client submits job</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--sequence">
             <pre class="mermaid">
 sequenceDiagram
   box rgba(239,246,255,0.5) Submit
@@ -626,7 +717,7 @@ sequenceDiagram
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 04b — Phase B: schedule, execute, complete</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--sequence">
             <pre class="mermaid">
 sequenceDiagram
   box rgba(236,253,248,0.5) Schedule
@@ -691,7 +782,7 @@ sequenceDiagram
         </p>
         <div class="diagram-block">
           <p class="diagram-caption">Fig 05 — Worker crash: detect, surface, redeliver</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--sequence">
             <pre class="mermaid">
 sequenceDiagram
   box rgba(239,246,255,0.5) Dead worker
