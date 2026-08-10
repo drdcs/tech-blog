@@ -42,7 +42,7 @@
         tertiaryColor: "#f8fafc",
         tertiaryTextColor: "#334155",
         tertiaryBorderColor: "#64748b",
-        lineColor: "#5c6f66",
+        lineColor: "#000000",
         textColor: "#2a3a33",
         mainBkg: "#ecfdf8",
         nodeBorder: "#0f766e",
@@ -52,8 +52,8 @@
         actorBkg: "#ecfdf8",
         actorBorder: "#0f766e",
         actorTextColor: "#14201b",
-        actorLineColor: "#94a3b8",
-        signalColor: "#2a3a33",
+        actorLineColor: "#000000",
+        signalColor: "#000000",
         signalTextColor: "#14201b",
         labelBoxBkgColor: "#ffffff",
         labelBoxBorderColor: "#0f766e",
@@ -64,17 +64,28 @@
         noteBorderColor: "#0369a1",
         activationBkgColor: "rgba(15,118,110,0.12)",
         activationBorderColor: "#0f766e",
-        sequenceNumberColor: "#ffffff"
+        sequenceNumberColor: "#14201b"
       }
     });
 
     const run = async () => {
       const nodes = document.querySelectorAll(".mermaid");
       await mermaid.run({ nodes });
-      // Soft SVG edge animation after render
-      document.querySelectorAll(".diagram-frame svg .edgePath path, .diagram-frame svg .flowchart-link").forEach((path, i) => {
-        path.style.strokeDasharray = "8 6";
-        path.style.animation = `dash-flow ${1.4 + (i % 3) * 0.2}s linear infinite`;
+
+      document.querySelectorAll(".diagram-frame--light svg .edgePath path, .diagram-frame--light svg .flowchart-link").forEach((path) => {
+        path.style.stroke = "#000000";
+        path.style.strokeDasharray = "none";
+        path.style.animation = "none";
+      });
+      document.querySelectorAll(".diagram-frame--light svg marker path").forEach((path) => {
+        path.setAttribute("fill", "#000000");
+        path.setAttribute("stroke", "#000000");
+      });
+      document.querySelectorAll(".diagram-frame--light svg line, .diagram-frame--light svg .messageLine0, .diagram-frame--light svg .messageLine1").forEach((el) => {
+        el.setAttribute("stroke", "#000000");
+      });
+      document.querySelectorAll(".diagram-frame--light svg .messageText, .diagram-frame--light svg .loopText, .diagram-frame--light svg .labelText, .diagram-frame--light svg .noteText, .diagram-frame--light svg .actor text, .diagram-frame--light svg .sequenceNumber").forEach((el) => {
+        el.setAttribute("fill", "#14201b");
       });
     };
 
@@ -149,7 +160,7 @@
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 01 — Separation of concerns</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 flowchart TB
   subgraph Product["Product Surface"]
@@ -209,7 +220,7 @@ flowchart TB
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 02 — MCP request lifecycle</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 sequenceDiagram
   autonumber
@@ -257,7 +268,7 @@ sequenceDiagram
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 03 — Agent control loop</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 stateDiagram-v2
   [*] --> ReceiveGoal
@@ -309,7 +320,7 @@ stateDiagram-v2
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 04 — Decision flow</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 flowchart TD
   Q1{"Is the problem<br/>multi-step / goal-based?"}
@@ -360,7 +371,7 @@ flowchart TD
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 05 — Headless AI architecture</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 flowchart LR
   subgraph Heads["Heads — Experience Layer"]
@@ -412,7 +423,7 @@ flowchart LR
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 06 — Headless request / event stream</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 sequenceDiagram
   autonumber
@@ -471,7 +482,7 @@ sequenceDiagram
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 07 — Dual registry topology</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 flowchart TB
   App["Application / Router"]
@@ -548,7 +559,7 @@ mcp.tools.call("github.create_issue", {
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 08 — Two interaction styles side by side</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 flowchart TB
   subgraph PathA["Path A — App talks to Agent"]
@@ -613,7 +624,7 @@ flowchart TB
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 10 — Enterprise Superagent topology</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 flowchart TB
   User["Employee / App / Slack"] --> SA["Superagent<br/>route · compose · govern"]
@@ -685,7 +696,7 @@ flowchart TB
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 11 — Superagent request routing sequence</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 sequenceDiagram
   autonumber
@@ -726,7 +737,7 @@ sequenceDiagram
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 12 — Cross-team handoff via Superagent</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 flowchart LR
   U["User"] --> SA["Superagent"]
@@ -788,7 +799,7 @@ flowchart LR
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 13 — Registry-driven control loop inside the Superagent</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 stateDiagram-v2
   [*] --> Ingest
@@ -876,7 +887,7 @@ stateDiagram-v2
 
         <div class="diagram-block">
           <p class="diagram-caption">Fig 09 — End-to-end production shape</p>
-          <div class="diagram-frame">
+          <div class="diagram-frame diagram-frame--light">
             <pre class="mermaid">
 flowchart LR
   User["User / System"] --> Head["Thin Head<br/>Web · Bot · IDE"]

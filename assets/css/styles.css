@@ -1470,20 +1470,37 @@ pre code {
   height: auto;
 }
 
+.diagram-frame--light,
 .diagram-frame--sequence {
   background: #ffffff;
   border-color: var(--line-strong);
   box-shadow: 0 8px 28px rgba(20, 32, 27, 0.06);
 }
 
+.diagram-frame--light::before,
 .diagram-frame--sequence::before {
   display: none;
 }
 
+.diagram-frame--light svg,
 .diagram-frame--sequence svg {
   background: #ffffff;
 }
 
+.diagram-frame--light svg .edgePath path,
+.diagram-frame--light svg .flowchart-link,
+.diagram-frame--sequence svg .edgePath path,
+.diagram-frame--sequence svg .flowchart-link {
+  stroke: #000000 !important;
+  stroke-dasharray: none !important;
+  animation: none !important;
+}
+
+.diagram-frame--light svg line,
+.diagram-frame--light svg .messageLine0,
+.diagram-frame--light svg .messageLine1,
+.diagram-frame--light svg path.messageLine0,
+.diagram-frame--light svg path.messageLine1,
 .diagram-frame--sequence svg line,
 .diagram-frame--sequence svg .messageLine0,
 .diagram-frame--sequence svg .messageLine1,
@@ -1492,17 +1509,36 @@ pre code {
   stroke: #000000 !important;
 }
 
+.diagram-frame--light svg marker path,
 .diagram-frame--sequence svg marker path {
   fill: #000000 !important;
   stroke: #000000 !important;
 }
 
+.diagram-frame--light svg .messageText,
+.diagram-frame--light svg .loopText,
+.diagram-frame--light svg .labelText,
+.diagram-frame--light svg .noteText,
+.diagram-frame--light svg .actor text,
+.diagram-frame--light svg .sequenceNumber,
 .diagram-frame--sequence svg .messageText,
 .diagram-frame--sequence svg .loopText,
 .diagram-frame--sequence svg .labelText,
 .diagram-frame--sequence svg .noteText,
 .diagram-frame--sequence svg .actor text,
 .diagram-frame--sequence svg .sequenceNumber {
+  fill: #14201b !important;
+}
+
+.diagram-frame--light svg .nodeLabel,
+.diagram-frame--light svg .edgeLabel span,
+.diagram-frame--light svg .edgeLabel p,
+.diagram-frame--light svg .cluster-label,
+.diagram-frame--sequence svg .nodeLabel,
+.diagram-frame--sequence svg .edgeLabel span,
+.diagram-frame--sequence svg .edgeLabel p,
+.diagram-frame--sequence svg .cluster-label {
+  color: #14201b !important;
   fill: #14201b !important;
 }
 
