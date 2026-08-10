@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Attention Is All You Need — Whitepaper — Tech Blog by Dip</title>
+  <meta name="description" content="The 2017 Transformer paper explained in plain language: why RNNs were the bottleneck, how self-attention works, and the architecture that changed NLP forever." />
+  <meta name="theme-color" content="#f8f9fa" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../../assets/css/styles.css" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      securityLevel: "loose",
+      flowchart: { curve: "basis", padding: 12, htmlLabels: true, nodeSpacing: 28, rankSpacing: 36 },
+      themeVariables: {
+        darkMode: false,
+        background: "#ffffff",
+        primaryColor: "#ecfdf8",
+        primaryTextColor: "#14201b",
+        primaryBorderColor: "#0f766e",
+        secondaryColor: "#eff6ff",
+        secondaryTextColor: "#14201b",
+        secondaryBorderColor: "#0369a1",
+        lineColor: "#000000",
+        textColor: "#2a3a33",
+        mainBkg: "#ecfdf8",
+        nodeBorder: "#0f766e",
+        clusterBkg: "#f8fafc",
+        clusterBorder: "#cbd5e1",
+        titleColor: "#14201b"
+      }
+    });
+
+    const run = async () => {
+      const nodes = document.querySelectorAll(".mermaid");
+      await mermaid.run({ nodes });
+
+      document.querySelectorAll(".diagram-frame--light svg .edgePath path, .diagram-frame--light svg .flowchart-link").forEach((path) => {
+        path.style.stroke = "#000000";
+        path.style.strokeDasharray = "none";
+        path.style.animation = "none";
+      });
+      document.querySelectorAll(".diagram-frame--light svg marker path").forEach((path) => {
+        path.setAttribute("fill", "#000000");
+        path.setAttribute("stroke", "#000000");
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run);
+    } else {
+      run();
+    }
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="../../../" aria-label="Tech Blog by Dip home">
+        <span class="brand-mark">Tech Blog <span class="brand-emoji" aria-hidden="true">✦</span></span>
+        <span class="brand-tag">by Dip</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+      <ul class="nav-links">
+        <li><a href="../../../">Home</a></li>
+        <li><a href="../../../#topics">Topics</a></li>
+        <li><a href="../../whitepapers/" aria-current="page">Whitepapers</a></li>
+        <li><a href="../../ai/">AI</a></li>
+        <li><a href="../../../about/">About</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <header class="article-hero">
+      <div class="prose-wrap">
+        <div class="article-hero-emoji" aria-hidden="true">🧠 ⚡ 📄</div>
+        <div class="article-meta">
+          <span class="pill">📄 Whitepaper</span>
+          <span>🤖 Deep Learning</span>
+          <span>⏱️ 18 min read</span>
+          <span>📅 Aug 2026</span>
+        </div>
+        <h1 class="article-title">Attention Is All You Need</h1>
+        <p class="article-dek">
+          Vaswani et al., NeurIPS 2017 — the paper that replaced recurrence with self-attention, made sequence models parallelizable, and became the foundation for GPT, BERT, and every modern LLM.
+        </p>
+        <p class="article-dek" style="margin-top:0.75rem;font-size:0.95rem;opacity:0.85;">
+          <a href="https://arxiv.org/abs/1706.03762" rel="noopener noreferrer">Original paper (arXiv)</a>
+        </p>
+      </div>
+    </header>
+
+    <article class="article-body prose-wrap">
+      <nav class="toc" aria-label="Table of contents">
+        <h2>📑 On this page</h2>
+        <ol>
+          <li><a href="#problem">🎯 The problem it solves</a></li>
+          <li><a href="#before-after">↔️ Before vs after</a></li>
+          <li><a href="#architecture">🏗️ Architecture overview</a></li>
+          <li><a href="#attention">🔍 Attention in plain English</a></li>
+          <li><a href="#multi-head">🎭 Multi-head attention</a></li>
+          <li><a href="#positional">📍 Positional encoding</a></li>
+          <li><a href="#results">📊 What the paper proved</a></li>
+          <li><a href="#in-production">🌍 Where it's used today</a></li>
+          <li><a href="#legacy">🌱 Why it still matters</a></li>
+          <li><a href="#conclusion">🎯 Takeaways</a></li>
+        </ol>
+      </nav>
+
+      <section id="problem">
+        <h2>🎯 1. The problem it solves</h2>
+        <p>
+          Before 2017, the best models for machine translation — turning English into German, for example — were built on <strong>recurrent neural networks (RNNs)</strong>.
+          An RNN reads a sentence one word at a time, updating a hidden state at each step. Word 5 cannot be processed until words 1–4 are done.
+        </p>
+        <p>
+          That sequential dependency creates two painful bottlenecks:
+        </p>
+        <ul>
+          <li><strong>Slow training.</strong> You cannot fully parallelize across time steps within a single sentence. GPUs sit idle waiting for the previous step to finish.</li>
+          <li><strong>Hard long-range dependencies.</strong> Information from the beginning of a sentence must travel through many steps to reach the end. Gradients vanish; distant words are easy to forget.</li>
+        </ul>
+        <p>
+          Attention mechanisms already existed — they let a decoder "look back" at relevant encoder states instead of cramming everything into one vector.
+          But in almost every system, attention was <em>added on top of</em> recurrence. The RNN was still the backbone.
+        </p>
+        <p>
+          The authors asked a radical question: <strong>what if we drop recurrence entirely and use attention as the only glue between positions?</strong>
+          The answer was the <strong>Transformer</strong> — parallelizable, fast to train, and better at translation than the state of the art.
+        </p>
+      </section>
+
+      <section id="before-after">
+        <h2>↔️ 2. Before vs after</h2>
+
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--nfr">Before (RNN encoder-decoder)</span>
+            <h3>Sequential by design</h3>
+            <ul>
+              <li>Process token <em>t</em> only after token <em>t − 1</em>.</li>
+              <li>Hidden state <code>hₜ</code> carries memory forward — a serial pipeline.</li>
+              <li>Attention helps, but the RNN still gates every step.</li>
+              <li>Path length between two positions grows linearly with distance.</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label">After (Transformer)</span>
+            <h3>Parallel by design</h3>
+            <ul>
+              <li>All positions attend to all positions in one matrix operation.</li>
+              <li>No hidden-state chain — direct connections via attention weights.</li>
+              <li>Encoder and decoder stacks of identical layers (N = 6 in the paper).</li>
+              <li>Path length between any two positions is <strong>O(1)</strong> per layer.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <h2>🏗️ 3. Architecture overview</h2>
+        <p>
+          Think of the Transformer like a production pipeline. Raw text enters on the left; translated tokens exit on the right.
+          The encoder builds a rich representation of the source sentence. The decoder generates the target one token at a time,
+          attending to both what it has already written and what the encoder learned.
+        </p>
+        <p>
+          The diagram below maps the paper's design onto a familiar systems layout — left to right across six layers.
+          Solid arrows are synchronous forward passes (everything computed in parallel during encoding).
+          Dashed teal arrows are the autoregressive loop: each new output token is fed back as the next decoder input.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 01 — Transformer inference flow (layered architecture)</p>
+          <div class="diagram-frame diagram-frame--dark diagram-frame--arch">
+            <svg class="arch-flow-svg" viewBox="0 0 1040 340" width="100%" height="auto" role="img" aria-label="Layered Transformer architecture: input producers, embedding ingestion, encoder-decoder compute, context storage, attention cache, output consumers">
+              <defs>
+                <marker id="attn-arrow-sync" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#ffffff"/>
+                </marker>
+                <marker id="attn-arrow-async" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#2dd4bf"/>
+                </marker>
+              </defs>
+
+              <!-- Layer bands -->
+              <rect class="arch-lane arch-lane--clients" x="8" y="36" width="148" height="268" rx="8"/>
+              <rect class="arch-lane arch-lane--api" x="164" y="36" width="168" height="268" rx="8"/>
+              <rect class="arch-lane arch-lane--compute" x="340" y="36" width="148" height="268" rx="8"/>
+              <rect class="arch-lane arch-lane--storage" x="496" y="36" width="168" height="268" rx="8"/>
+              <rect class="arch-lane arch-lane--queue" x="672" y="36" width="148" height="268" rx="8"/>
+              <rect class="arch-lane arch-lane--consumers" x="828" y="36" width="204" height="268" rx="8"/>
+
+              <text class="arch-lane-title" x="82" y="52" text-anchor="middle">1 · Producers</text>
+              <text class="arch-lane-title" x="248" y="52" text-anchor="middle">2 · Ingestion</text>
+              <text class="arch-lane-title" x="414" y="52" text-anchor="middle">3 · Compute</text>
+              <text class="arch-lane-title" x="580" y="52" text-anchor="middle">4 · Storage</text>
+              <text class="arch-lane-title" x="746" y="52" text-anchor="middle">5 · Search / Cache</text>
+              <text class="arch-lane-title" x="930" y="52" text-anchor="middle">6 · Consumers</text>
+
+              <!-- Lane 1: Producers -->
+              <rect class="arch-node arch-node--clients" x="34" y="88" width="96" height="52" rx="6"/>
+              <text class="arch-node-label" x="82" y="110">Source text</text>
+              <text class="arch-node-sub" x="82" y="126">input sequence</text>
+
+              <rect class="arch-node arch-node--clients" x="34" y="196" width="96" height="52" rx="6"/>
+              <text class="arch-node-label" x="82" y="218">Target prefix</text>
+              <text class="arch-node-sub" x="82" y="234">prior tokens</text>
+
+              <!-- Lane 2: Ingestion -->
+              <rect class="arch-node arch-node--api" x="178" y="78" width="88" height="40" rx="6"/>
+              <text class="arch-node-label" x="222" y="96">Tokenizer</text>
+              <text class="arch-node-sub" x="222" y="110">subword IDs</text>
+
+              <rect class="arch-node arch-node--api" x="178" y="138" width="88" height="48" rx="6"/>
+              <text class="arch-node-label" x="222" y="158">Embeddings</text>
+              <text class="arch-node-sub" x="222" y="174">d_model = 512</text>
+
+              <rect class="arch-node arch-node--api" x="178" y="208" width="88" height="48" rx="6"/>
+              <text class="arch-node-label" x="222" y="228">Positional</text>
+              <text class="arch-node-sub" x="222" y="244">sin / cos enc</text>
+
+              <!-- Lane 3: Compute -->
+              <rect class="arch-node arch-node--compute" x="354" y="78" width="120" height="56" rx="6"/>
+              <text class="arch-node-label" x="414" y="100">Encoder ×6</text>
+              <text class="arch-node-sub" x="414" y="116">self-attn + FFN</text>
+              <text class="arch-node-sub" x="414" y="128">parallel layers</text>
+
+              <rect class="arch-node arch-node--compute" x="354" y="186" width="120" height="56" rx="6"/>
+              <text class="arch-node-label" x="414" y="208">Decoder ×6</text>
+              <text class="arch-node-sub" x="414" y="224">masked self-attn</text>
+              <text class="arch-node-sub" x="414" y="236">cross-attn + FFN</text>
+
+              <!-- Lane 4: Storage -->
+              <rect class="arch-node arch-node--postgres" x="510" y="88" width="104" height="48" rx="6"/>
+              <text class="arch-node-label" x="562" y="108">Context Z</text>
+              <text class="arch-node-sub" x="562" y="124">encoder output</text>
+
+              <rect class="arch-node arch-node--cassandra" x="510" y="168" width="104" height="48" rx="6"/>
+              <text class="arch-node-label" x="562" y="188">Weights</text>
+              <text class="arch-node-sub" x="562" y="204">trained params</text>
+
+              <!-- Lane 5: Search / Cache -->
+              <rect class="arch-queue-pulse" x="688" y="88" width="116" height="64" rx="8"/>
+              <rect class="arch-node arch-node--queue" x="694" y="94" width="104" height="52" rx="6"/>
+              <text class="arch-node-label" x="746" y="114">Attention</text>
+              <text class="arch-node-sub" x="746" y="130">Q · K^T → softmax</text>
+
+              <rect class="arch-node arch-node--redis" x="694" y="196" width="104" height="48" rx="6"/>
+              <text class="arch-node-label" x="746" y="216">KV cache</text>
+              <text class="arch-node-sub" x="746" y="232">inference reuse</text>
+
+              <!-- Lane 6: Consumers -->
+              <rect class="arch-node arch-node--consumers" x="844" y="88" width="104" height="48" rx="6"/>
+              <text class="arch-node-label" x="896" y="108">Linear +</text>
+              <text class="arch-node-label" x="896" y="122">Softmax</text>
+
+              <rect class="arch-node arch-node--external" x="844" y="186" width="104" height="52" rx="6"/>
+              <text class="arch-node-label" x="896" y="208">Output tokens</text>
+              <text class="arch-node-sub" x="896" y="224">translation</text>
+
+              <!-- Sync edges -->
+              <path class="arch-edge--sync" d="M130,114 L178,98" marker-end="url(#attn-arrow-sync)"/>
+              <text class="arch-edge-label" x="148" y="100">documents</text>
+
+              <path class="arch-edge--sync" d="M130,222 L178,232" marker-end="url(#attn-arrow-sync)"/>
+              <text class="arch-edge-label" x="148" y="218">tokens</text>
+
+              <line x1="222" y1="118" x2="222" y2="138" class="arch-edge--sync"/>
+              <line x1="222" y1="186" x2="222" y2="208" class="arch-edge--sync"/>
+              <polygon points="218,135 222,142 226,135" fill="#ffffff"/>
+              <polygon points="218,203 222,210 226,203" fill="#ffffff"/>
+
+              <path class="arch-edge--sync" d="M266,162 C300,162 320,106 354,106" marker-end="url(#attn-arrow-sync)"/>
+              <text class="arch-edge-label" x="300" y="118">embeddings</text>
+
+              <path class="arch-edge--sync" d="M266,232 C300,232 320,218 354,218" marker-end="url(#attn-arrow-sync)"/>
+              <text class="arch-edge-label" x="300" y="224">embeddings</text>
+
+              <path class="arch-edge--sync" d="M474,106 L510,112" marker-end="url(#attn-arrow-sync)"/>
+              <text class="arch-edge-label" x="488" y="98">context</text>
+
+              <path class="arch-edge--sync" d="M562,136 L562,168" marker-end="url(#attn-arrow-sync)"/>
+              <text class="arch-edge-label" x="574" y="158">read</text>
+
+              <path class="arch-edge--sync" d="M474,218 L694,120" marker-end="url(#attn-arrow-sync)"/>
+              <text class="arch-edge-label" x="580" y="158">queries</text>
+
+              <path class="arch-edge--sync" d="M614,112 L694,120" marker-end="url(#attn-arrow-sync)"/>
+              <text class="arch-edge-label" x="648" y="104">keys / values</text>
+
+              <path class="arch-edge--sync" d="M798,120 L844,112" marker-end="url(#attn-arrow-sync)"/>
+              <text class="arch-edge-label" x="812" y="108">weights</text>
+
+              <path class="arch-edge--sync" d="M896,136 L896,186" marker-end="url(#attn-arrow-sync)"/>
+              <text class="arch-edge-label" x="908" y="166">results</text>
+
+              <!-- Async: autoregressive loop -->
+              <path class="arch-edge--async" d="M844,212 C760,280 82,280 82,248" marker-end="url(#attn-arrow-async)"/>
+              <text class="arch-edge-label" x="420" y="296">next token (autoregressive)</text>
+
+              <path class="arch-edge--async" d="M746,248 L746,196" marker-end="url(#attn-arrow-async)"/>
+              <text class="arch-edge-label" x="758" y="228">cache hit</text>
+            </svg>
+
+            <div class="arch-legend" role="list">
+              <div class="arch-legend-section">
+                <p class="arch-legend-title">Arrow styles</p>
+                <p class="arch-legend-row"><span class="arch-line-sample"></span>Synchronous forward pass (parallel encode / attend)</p>
+                <p class="arch-legend-row"><span class="arch-line-sample arch-line-sample--async"></span>Autoregressive loop (one token at a time)</p>
+              </div>
+              <div class="arch-legend-section">
+                <p class="arch-legend-title">Layer colors</p>
+                <p class="arch-legend-row"><span style="color:#2dd4bf">■</span> Producers · <span style="color:#60a5fa">■</span> Ingestion · <span style="color:#34d399">■</span> Compute</p>
+                <p class="arch-legend-row"><span style="color:#38bdf8">■</span> Storage · <span style="color:#2dd4bf">■</span> Attention / cache · <span style="color:#94a3b8">■</span> Output</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="diagram-legend" role="list">
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">Encoder</span><span class="diagram-legend-desc">Six identical layers. Each layer: multi-head self-attention → feed-forward network, with residual connections and layer norm.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">Decoder</span><span class="diagram-legend-desc">Six layers with masked self-attention (cannot peek at future tokens), cross-attention over encoder output Z, then FFN.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">Context Z</span><span class="diagram-legend-desc">The encoder's output — a vector per source token. The decoder queries this memory at every generation step.</span></div>
+            <div class="diagram-legend-item" role="listitem"><span class="diagram-legend-key">KV cache</span><span class="diagram-legend-desc">At inference time, past keys and values are cached so each new token does not recompute the full history.</span></div>
+          </div>
+        </div>
+
+        <h3>What each stack layer does</h3>
+        <p>Both encoder and decoder layers repeat the same pattern with small variations:</p>
+        <ol>
+          <li><strong>Multi-head self-attention</strong> — every position gathers information from every other position.</li>
+          <li><strong>Feed-forward network (FFN)</strong> — two linear layers with ReLU, applied independently per position.</li>
+          <li><strong>Residual + layer norm</strong> — <code>LayerNorm(x + Sublayer(x))</code> keeps gradients healthy across deep stacks.</li>
+        </ol>
+        <p>
+          The decoder adds <strong>cross-attention</strong>: queries come from the decoder, keys and values come from the encoder output.
+          That is how "the German word being generated" looks back at "the English words it came from."
+        </p>
+      </section>
+
+      <section id="attention">
+        <h2>🔍 4. Attention in plain English</h2>
+        <p>
+          Attention answers one question: <strong>given what I am trying to produce right now, which parts of the input should I focus on?</strong>
+          The paper implements this with three learned vectors per token:
+        </p>
+        <ul>
+          <li><strong>Query (Q)</strong> — "What am I looking for?"</li>
+          <li><strong>Key (K)</strong> — "What do I contain?"</li>
+          <li><strong>Value (V)</strong> — "What information do I pass along if selected?"</li>
+        </ul>
+        <p>
+          Compare every query to every key (dot product), scale by <code>√dₖ</code> so softmax does not saturate, softmax into weights, then take a weighted sum of values.
+          In matrix form:
+        </p>
+        <pre><code>Attention(Q, K, V) = softmax(QKᵀ / √dₖ) · V</code></pre>
+        <p>
+          <strong>Self-attention</strong> means Q, K, and V all come from the same sequence — each word attends to every other word in the same sentence.
+          That is how the model learns grammar, coreference, and long-distance relationships without a recurrent chain.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 02 — Scaled dot-product attention (single head)</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+flowchart LR
+  Q["Queries Q"] --> DOT["Q K^T dot product"]
+  K["Keys K"] --> DOT
+  DOT --> SCALE["scale by sqrt dk"]
+  SCALE --> SOFT["Softmax"]
+  SOFT --> MIX["Weighted sum"]
+  V["Values V"] --> MIX
+  MIX --> OUT["Output vectors"]
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="multi-head">
+        <h2>🎭 5. Multi-head attention</h2>
+        <p>
+          One attention head learns one kind of relationship — maybe subject-verb agreement, maybe alignment between source and target words.
+          The Transformer runs <strong>h = 8 heads in parallel</strong>, each with smaller dimension (dₖ = dᵥ = 64), then concatenates and projects back to d<sub>model</sub> = 512.
+        </p>
+        <p>
+          Think of it like eight specialists reading the same paragraph simultaneously, each noticing different patterns, then merging their notes.
+          This recovers the "resolution" that a single averaged attention head would lose.
+        </p>
+        <p>The paper uses attention in three places:</p>
+        <ul>
+          <li><strong>Encoder self-attention</strong> — source tokens attend to source tokens.</li>
+          <li><strong>Decoder masked self-attention</strong> — target tokens attend only to earlier target tokens (causal mask).</li>
+          <li><strong>Decoder cross-attention</strong> — target queries attend to encoder keys/values.</li>
+        </ul>
+      </section>
+
+      <section id="positional">
+        <h2>📍 6. Positional encoding</h2>
+        <p>
+          Self-attention is permutation-invariant — swap word order and the dot products do not change.
+          The model needs to know position, but the authors avoided recurrence entirely.
+        </p>
+        <p>
+          Their fix: add fixed sinusoidal signals to the input embeddings.
+          Even positions use sin, odd positions use cos, with wavelengths from 2π to 10,000π.
+          The model learns to use these signals to reason about order and relative distance.
+        </p>
+        <p>
+          In modern LLMs you often see <strong>learned positional embeddings</strong> or <strong>RoPE</strong> instead — but the idea started here:
+          position is injected at ingestion, not carried through a recurrent state machine.
+        </p>
+      </section>
+
+      <section id="results">
+        <h2>📊 7. What the paper proved</h2>
+        <p>On WMT 2014 English→German and English→French translation benchmarks:</p>
+        <ul>
+          <li><strong>BLEU 28.4</strong> on En→De — new state of the art, beating ensembles of previous models.</li>
+          <li><strong>BLEU 41.8</strong> on En→Fr — trained in 3.5 days on 8 GPUs (vs. weeks for RNN pipelines).</li>
+          <li><strong>Training cost:</strong> base model trained in ~12 hours on 8 P100 GPUs for the big English-German setup.</li>
+        </ul>
+        <p>
+          Complexity per layer: self-attention is O(n² · d) in sequence length n — fine for sentences, painful for million-token contexts.
+          That trade-off (parallelism vs. quadratic memory) still shapes every production LLM deployment today.
+        </p>
+
+        <div class="hld-panel">
+          <span class="hld-panel-label">Paper defaults (base model)</span>
+          <h3>Hyperparameters at a glance</h3>
+          <ul>
+            <li>N = 6 encoder + 6 decoder layers</li>
+            <li>d<sub>model</sub> = 512, d<sub>ff</sub> = 2048</li>
+            <li>h = 8 attention heads, d<sub>k</sub> = d<sub>v</sub> = 64</li>
+            <li>Dropout 0.1, Adam optimizer, warmup learning-rate schedule</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="in-production">
+        <h2>🌍 8. Where the implementation is used today</h2>
+        <p>
+          The paper was written for machine translation, but the Transformer block became the default building block for almost every modern AI system.
+          You rarely see a product labeled "Transformer inside" — instead, you see chatbots, search results, subtitles, and code suggestions powered by one of three variants of the same architecture.
+        </p>
+
+        <div class="hld-panel-grid hld-panel-grid--3">
+          <div class="hld-panel">
+            <span class="hld-panel-label">Encoder-only</span>
+            <h3>Understand &amp; classify</h3>
+            <p>Reads the full input at once (bidirectional). Best for search ranking, sentiment, NER, and embeddings.</p>
+            <p><strong>Examples:</strong> BERT, RoBERTa, sentence-transformers</p>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label">Decoder-only</span>
+            <h3>Generate text</h3>
+            <p>Masked self-attention — each token only sees the past. Best for chat, code completion, and agents.</p>
+            <p><strong>Examples:</strong> GPT-4, Llama, Gemini, Claude</p>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label">Encoder-decoder</span>
+            <h3>Transform sequences</h3>
+            <p>Closest to the original paper. Encoder builds context; decoder generates output token by token.</p>
+            <p><strong>Examples:</strong> T5, BART, Whisper, original NMT stack</p>
+          </div>
+        </div>
+
+        <h3>Products and services you likely use</h3>
+        <ul>
+          <li>
+            <strong>Google Search</strong> — In 2019 Google integrated <a href="https://blog.google/products/search/search-language-understanding-bert/" rel="noopener noreferrer">BERT</a> (encoder-only Transformer) into ranking so the engine understands full sentence context, not just keyword matches. By 2021, <a href="https://blog.google/products/search/mum-update/" rel="noopener noreferrer">MUM</a> extended this with a T5-style encoder-decoder model for complex, multilingual queries.
+          </li>
+          <li>
+            <strong>Google Translate</strong> — Google replaced its older RNN-based GNMT system with <a href="https://research.google/blog/recent-advances-in-google-translate/" rel="noopener noreferrer">hybrid Transformer encoder models</a>, keeping a fast RNN decoder for low-latency inference. Translation quality improved because the encoder could relate every word in the source sentence in parallel — exactly what the 2017 paper demonstrated.
+          </li>
+          <li>
+            <strong>ChatGPT and copilots</strong> — ChatGPT is a fine-tuned <a href="https://en.wikipedia.org/wiki/Attention_Is_All_You_Need" rel="noopener noreferrer">decoder-only GPT model</a>. The same stack powers GitHub Copilot, Microsoft Copilot, and most enterprise "AI assistant" features: autoregressive decode with causal masking, one token at a time.
+          </li>
+          <li>
+            <strong>Whisper (speech)</strong> — OpenAI's <a href="https://github.com/openai/whisper" rel="noopener noreferrer">Whisper</a> uses a Transformer sequence-to-sequence model for speech recognition, translation, and language ID — the encoder-decoder pattern from the paper, applied to audio tokens instead of text.
+          </li>
+          <li>
+            <strong>Image and video generation</strong> — Models like DALL·E, Stable Diffusion, and Sora use Transformer attention blocks to relate patches or tokens across an image or video frame sequence. The Vision Transformer (ViT) showed the same self-attention recipe works beyond language.
+          </li>
+          <li>
+            <strong>AI search (Perplexity)</strong> — Perplexity serves hundreds of millions of search queries per month using <a href="https://developer.nvidia.com/blog/spotlight-perplexity-ai-serves-400-million-search-queries-a-month-using-nvidia-inference-stack/" rel="noopener noreferrer">Llama-based Transformer models</a> on NVIDIA GPUs, with tensor parallelism and disaggregated prefill/decode serving to hit latency SLAs at scale.
+          </li>
+        </ul>
+
+        <h3>Behind the scenes: libraries and serving stacks</h3>
+        <p>
+          Most teams never implement attention from scratch. They load a checkpoint through an ecosystem built on this paper:
+        </p>
+        <ul>
+          <li>
+            <strong><a href="https://github.com/huggingface/transformers" rel="noopener noreferrer">Hugging Face Transformers</a></strong> — The de facto model-definition library. The Hub hosts 1M+ pretrained checkpoints (BERT, GPT, T5, Llama, Whisper, and more) with a unified API for training and inference.
+          </li>
+          <li>
+            <strong>Inference engines</strong> — Production serving typically runs through <a href="https://github.com/vllm-project/vllm" rel="noopener noreferrer">vLLM</a>, NVIDIA TensorRT-LLM, or Triton — all optimized for the same operations the paper introduced: batched matrix multiplies for Q·K<sup>T</sup>, softmax attention weights, and KV-cache reuse during decode.
+          </li>
+          <li>
+            <strong>tensor2tensor</strong> — The original authors released their implementation in Google's <a href="https://github.com/tensorflow/tensor2tensor" rel="noopener noreferrer">tensor2tensor</a> framework. Modern stacks have moved on, but that codebase was the first proof that the architecture trained end-to-end on real translation benchmarks.
+          </li>
+        </ul>
+
+        <div class="hld-panel hld-panel--wide">
+          <span class="hld-panel-label">Systems takeaway</span>
+          <h3>Same architecture, different product shape</h3>
+          <p>
+            Encoder-only models power <em>understanding</em> (search, classification, RAG embeddings).
+            Decoder-only models power <em>generation</em> (chat, code, agents).
+            Encoder-decoder models power <em>transduction</em> (translation, summarization, speech-to-text).
+            Pick the variant that matches your data flow — but underneath, it is still multi-head self-attention, feed-forward layers, and residual connections from Vaswani et al., 2017.
+          </p>
+        </div>
+      </section>
+
+      <section id="legacy">
+        <h2>🌱 9. Why it still matters</h2>
+        <p>
+          "Attention is all you need" is not just a catchy title — it was a design bet that paid off across the entire field:
+        </p>
+        <ul>
+          <li><strong>BERT (2018)</strong> — encoder-only Transformer for bidirectional pre-training.</li>
+          <li><strong>GPT (2018+)</strong> — decoder-only stack, scaled to billions of parameters.</li>
+          <li><strong>Vision Transformer, Whisper, DALL·E, diffusion U-Nets with attention</strong> — the same block reused everywhere.</li>
+        </ul>
+        <p>
+          If you are building AI systems today, you are almost certainly shipping, serving, or fine-tuning a descendant of this architecture.
+          Understanding the encoder-decoder split, the Q/K/V contract, and the autoregressive decode loop is the baseline literacy for LLM engineering — whether you are ranking search results or streaming tokens from a chat API.
+        </p>
+      </section>
+
+      <section id="conclusion">
+        <h2>🎯 10. Takeaways</h2>
+        <ol>
+          <li><strong>Recurrence was the bottleneck.</strong> Sequential hidden states blocked GPU parallelism and made long-range dependencies expensive.</li>
+          <li><strong>Attention can be the whole model.</strong> Self-attention + FFN layers, stacked deeply, are enough for sequence transduction.</li>
+          <li><strong>Parallel encode, serial decode.</strong> The encoder sees the full source at once; the decoder generates one token at a time with causal masking.</li>
+          <li><strong>Multi-head attention buys expressiveness.</strong> Several smaller attention maps beat one large averaged map.</li>
+          <li><strong>Position must be explicit.</strong> Without recurrence, positional encoding (or its modern successors) is non-negotiable.</li>
+        </ol>
+        <p>
+          The paper is dense with math, but the systems story is simple: replace a serial pipeline with a parallel attention graph,
+          store encoder context as addressable memory, and let the decoder query it on every step.
+          Everything in today's LLM stack is an iteration on that idea.
+        </p>
+      </section>
+
+      <nav class="article-nav" aria-label="Article navigation">
+        <a class="article-nav-link" href="../../whitepapers/">← All whitepapers</a>
+        <a class="article-nav-link" href="../../ai/mcp-vs-agents/">MCP vs Agents →</a>
+      </nav>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <div class="footer-brand">Tech Blog by Dip</div>
+        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span></p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../../../assets/js/main.js"></script>
+</body>
+</html>
