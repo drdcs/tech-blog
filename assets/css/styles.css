@@ -151,6 +151,51 @@ pre {
   border-radius: 8px;
 }
 
+.code-block {
+  position: relative;
+  margin: 1.5rem 0;
+}
+
+.code-block pre {
+  margin: 0;
+  padding-top: 2.5rem;
+}
+
+.code-copy {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 2;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  background: #334155;
+  color: #e2e8f0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.code-copy:hover {
+  background: #475569;
+  border-color: #64748b;
+  color: #f8fafc;
+}
+
+.code-copy:focus-visible {
+  outline: 2px solid var(--teal, #0f766e);
+  outline-offset: 2px;
+}
+
+.code-copy.is-copied {
+  background: #134e4a;
+  border-color: #2dd4bf;
+  color: #ecfdf8;
+}
+
 pre code {
   color: #e2e8f0;
   font-size: 0.875rem;
@@ -860,6 +905,29 @@ pre code {
   margin: 1.75rem 0 0.75rem;
 }
 
+.article-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  font-size: 0.95rem;
+}
+
+.article-body th,
+.article-body td {
+  border: 1px solid var(--line);
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+}
+
+.article-body th {
+  background: var(--bg-elevated);
+  font-weight: 600;
+}
+
+.article-body tr:nth-child(even) td {
+  background: rgba(15, 118, 110, 0.04);
+}
+
 .toc {
   margin: 2.5rem 0;
   padding: 1.35rem 0;
@@ -1030,6 +1098,31 @@ pre code {
     var(--bg-elevated);
   overflow: auto;
   box-shadow: 0 10px 36px rgba(20, 32, 27, 0.04);
+}
+
+.vscode-snapshot {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid #3c3c3c;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.diagram-frame--snapshot {
+  padding: 1rem;
+  background: #1a1a1a;
+  border-color: #3c3c3c;
+  min-height: 120px;
+}
+
+.diagram-frame--snapshot .vscode-snapshot {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-height: 280px;
+  object-fit: contain;
 }
 
 .diagram-frame--wide {

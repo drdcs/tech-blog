@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 520" role="img" aria-label="VS Code mcp.json configuration with servers key">
+  <defs>
+    <linearGradient id="bg-mcp-json" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e1e1e"/>
+      <stop offset="100%" stop-color="#252526"/>
+    </linearGradient>
+  </defs>
+  <rect width="920" height="520" rx="10" fill="url(#bg-mcp-json)" stroke="#3c3c3c"/>
+  <rect x="0" y="0" width="200" height="520" fill="#252526" stroke="#3c3c3c"/>
+  <text x="16" y="32" fill="#cccccc" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600">EXPLORER</text>
+  <text x="28" y="58" fill="#9cdcfe" font-family="JetBrains Mono, monospace" font-size="11">.vscode</text>
+  <text x="40" y="78" fill="#ffffff" font-family="JetBrains Mono, monospace" font-size="11">mcp.json</text>
+  <text x="28" y="104" fill="#cccccc" font-family="JetBrains Mono, monospace" font-size="11">server.py</text>
+  <text x="28" y="124" fill="#cccccc" font-family="JetBrains Mono, monospace" font-size="11">docs/decisions</text>
+  <rect x="200" y="0" width="720" height="36" fill="#323233"/>
+  <text x="216" y="23" fill="#cccccc" font-family="Inter, system-ui, sans-serif" font-size="12">mcp.json - .vscode</text>
+  <rect x="216" y="56" width="688" height="420" rx="6" fill="#1e1e1e" stroke="#3c3c3c"/>
+  <text x="236" y="88" fill="#d4d4d4" font-family="JetBrains Mono, monospace" font-size="12">{</text>
+  <text x="252" y="110" fill="#9cdcfe" font-family="JetBrains Mono, monospace" font-size="12">"servers"</text>
+  <text x="332" y="110" fill="#d4d4d4" font-family="JetBrains Mono, monospace" font-size="12">: {</text>
+  <text x="268" y="132" fill="#ce9178" font-family="JetBrains Mono, monospace" font-size="12">"adr-copilot"</text>
+  <text x="388" y="132" fill="#d4d4d4" font-family="JetBrains Mono, monospace" font-size="12">: {</text>
+  <text x="284" y="154" fill="#9cdcfe" font-family="JetBrains Mono, monospace" font-size="12">"type"</text>
+  <text x="332" y="154" fill="#d4d4d4" font-family="JetBrains Mono, monospace" font-size="12">: </text>
+  <text x="348" y="154" fill="#ce9178" font-family="JetBrains Mono, monospace" font-size="12">"stdio"</text>
+  <text x="284" y="176" fill="#9cdcfe" font-family="JetBrains Mono, monospace" font-size="12">"command"</text>
+  <text x="364" y="176" fill="#d4d4d4" font-family="JetBrains Mono, monospace" font-size="12">: </text>
+  <text x="380" y="176" fill="#ce9178" font-family="JetBrains Mono, monospace" font-size="12">"python3"</text>
+  <text x="284" y="198" fill="#9cdcfe" font-family="JetBrains Mono, monospace" font-size="12">"args"</text>
+  <text x="340" y="198" fill="#d4d4d4" font-family="JetBrains Mono, monospace" font-size="12">: [</text>
+  <text x="356" y="198" fill="#ce9178" font-family="JetBrains Mono, monospace" font-size="12">"${workspaceFolder}/server.py"</text>
+  <text x="284" y="220" fill="#9cdcfe" font-family="JetBrains Mono, monospace" font-size="12">"env"</text>
+  <text x="328" y="220" fill="#d4d4d4" font-family="JetBrains Mono, monospace" font-size="12">: { </text>
+  <text x="300" y="242" fill="#ce9178" font-family="JetBrains Mono, monospace" font-size="12">"ADR_ROOT"</text>
+  <text x="388" y="242" fill="#d4d4d4" font-family="JetBrains Mono, monospace" font-size="12">: </text>
+  <text x="404" y="242" fill="#ce9178" font-family="JetBrains Mono, monospace" font-size="12">".../docs/decisions"</text>
+  <rect x="236" y="280" width="440" height="52" rx="6" fill="#3a2f1a" stroke="#fbbf24"/>
+  <text x="252" y="302" fill="#fbbf24" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600">VS Code uses "servers" - not "mcpServers"</text>
+  <text x="252" y="320" fill="#d4d4d4" font-family="Inter, system-ui, sans-serif" font-size="11">Claude Desktop / Cursor configs need renaming</text>
+  <rect x="216" y="460" width="320" height="28" rx="4" fill="#0f766e"/>
+  <text x="228" y="479" fill="#ecfdf8" font-family="Inter, system-ui, sans-serif" font-size="11">MCP: List Servers - adr-copilot - Running</text>
+</svg>

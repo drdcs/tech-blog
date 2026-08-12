@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Build ADR Copilot MCP for VS Code — Tech Blog by Dip</title>
+  <meta name="description" content="Step-by-step tutorial: build an ADR Copilot MCP server from scratch with Python FastMCP, wire it to VS Code Agent mode, and teach your coding agent to read architecture decisions." />
+  <meta name="theme-color" content="#f5f7f6" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../../assets/css/styles.css" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      securityLevel: "loose",
+      flowchart: { curve: "basis", padding: 12, htmlLabels: true },
+      sequence: { actorMargin: 48, mirrorActors: false },
+      themeVariables: {
+        darkMode: false,
+        background: "#ffffff",
+        primaryColor: "#ecfdf8",
+        primaryTextColor: "#14201b",
+        primaryBorderColor: "#0f766e",
+        lineColor: "#000000",
+        textColor: "#2a3a33",
+        actorLineColor: "#000000",
+        signalColor: "#000000"
+      }
+    });
+    const run = async () => {
+      await mermaid.run({ nodes: document.querySelectorAll(".mermaid") });
+      document.querySelectorAll(".diagram-frame--light svg .edgePath path, .diagram-frame--light svg .flowchart-link, .diagram-frame--light svg .messageLine0, .diagram-frame--light svg .messageLine1").forEach((el) => {
+        el.style.stroke = "#000000";
+      });
+      document.querySelectorAll(".diagram-frame--light svg marker path").forEach((el) => {
+        el.setAttribute("fill", "#000000");
+      });
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
+    else run();
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="../../../"><span class="brand-mark">Tech Blog <span class="brand-emoji" aria-hidden="true">✦</span></span><span class="brand-tag">by Dip</span></a>
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+      <ul class="nav-links">
+        <li><a href="../../../">Home</a></li>
+        <li><a href="../">AI</a></li>
+        <li><a href="../../../about/">About</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <header class="article-hero">
+      <div class="prose-wrap">
+        <div class="article-hero-emoji" aria-hidden="true">📋 🐍 🔌</div>
+        <div class="article-meta">
+          <span class="pill">🤖 Tutorial</span>
+          <span>Python · FastMCP</span>
+          <span>⏱️ 32 min read</span>
+          <span>📅 Aug 2026</span>
+        </div>
+        <h1 class="article-title">Build ADR Copilot MCP for VS Code</h1>
+        <p class="article-dek">
+          A from-scratch walkthrough: write a Python MCP server with <strong>FastMCP</strong>, expose architecture decisions as tools and resources, and connect it to <strong>VS Code Copilot Agent mode</strong> — so your agent cites real ADRs instead of inventing history.
+        </p>
+        <p class="article-dek" style="margin-top:0.75rem;font-size:0.95rem;opacity:0.85;">
+          Finished code: <a href="starter/">starter/</a> · Concepts: <a href="../mcp-vs-agents/">MCP vs Agents</a>
+        </p>
+      </div>
+    </header>
+
+    <article class="article-body prose-wrap">
+      <nav class="toc" aria-label="Table of contents">
+        <h2>📑 On this page</h2>
+        <ol>
+          <li><a href="#goal">🎯 What we are building</a></li>
+          <li><a href="#what-is-adr">📋 What is an ADR?</a></li>
+          <li><a href="#step-1">Step 1 — Project setup</a></li>
+          <li><a href="#step-2">Step 2 — TRACE schema</a></li>
+          <li><a href="#step-3">Step 3 — Ledger store</a></li>
+          <li><a href="#step-4">Step 4 — Hello, FastMCP</a></li>
+          <li><a href="#step-5">Step 5 — Tools</a></li>
+          <li><a href="#trace-draft">↳ <code>trace_draft</code></a></li>
+          <li><a href="#trace-graph">↳ <code>trace_graph</code></a></li>
+          <li><a href="#step-6">Step 6 — Resources</a></li>
+          <li><a href="#step-7">Step 7 — Prompts</a></li>
+          <li><a href="#step-8">Step 8 — Drift &amp; scoring</a></li>
+          <li><a href="#step-9">Step 9 — Wire VS Code</a></li>
+          <li><a href="#step-10">Step 10 — Test in Agent mode</a></li>
+        </ol>
+      </nav>
+
+      <section id="goal">
+        <h2>🎯 What we are building</h2>
+        <p>
+          By the end of this tutorial you will have a working <strong>ADR Copilot MCP</strong> — a small Python server that sits between VS Code Copilot and your team's architecture decision records.
+          When someone asks <em>"why did we choose Kafka here?"</em> or <em>"what happens if we roll this back?"</em>, the agent pulls a real decision from the ledger instead of guessing from file names.
+        </p>
+
+        <h3 id="what-is-adr">What is an ADR?</h3>
+        <p>
+          An <strong>Architecture Decision Record (ADR)</strong> is a short, durable write-up of a significant technical choice: what you decided, what you rejected, and why it mattered at the time.
+          The idea was popularized by Michael Nygard — one decision per document, stored in version control alongside the code it affects.
+        </p>
+        <p>
+          Think of ADRs as <strong>commit messages for architecture</strong>. A git commit explains what changed in a diff. An ADR explains what changed in your <em>thinking</em> — and that context often outlives the people who made the call.
+        </p>
+
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--nfr">Without ADRs</span>
+            <h3>How teams actually lose context</h3>
+            <ul>
+              <li>"We always used Postgres" — nobody remembers the incident that drove it</li>
+              <li>Critical context lives in a merged PR from 2022, buried in 400 comments</li>
+              <li>New hires ship changes that violate a constraint nobody documented</li>
+              <li>Copilot invents plausible-sounding history because it has no source of truth</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label">With ADRs</span>
+            <h3>What good looks like</h3>
+            <ul>
+              <li>Decision <code>0042</code>: "Use Kafka for cross-service events" — status, date, owner</li>
+              <li>Alternatives section records why RabbitMQ and SQS were rejected</li>
+              <li><code>linked_paths</code> point at the files that implement the decision</li>
+              <li>Agents and humans cite the same document in review and onboarding</li>
+            </ul>
+          </div>
+        </div>
+
+        <p>A typical ADR answers four questions in plain language:</p>
+        <ol>
+          <li><strong>Context</strong> — what situation forced a choice? (scaling pain, compliance, deadline)</li>
+          <li><strong>Decision</strong> — what did we pick?</li>
+          <li><strong>Alternatives</strong> — what else did we consider and rule out?</li>
+          <li><strong>Consequences</strong> — what gets easier, harder, or riskier because of this?</li>
+        </ol>
+        <p>
+          ADRs are intentionally lightweight. They are not design specs, RFC novels, or Confluence pages that rot in a sidebar.
+          Most teams keep them as markdown in <code>docs/decisions/</code> or <code>adr/</code> and number them sequentially: <code>0001</code>, <code>0002</code>, and so on.
+        </p>
+
+        <h3>Why put ADRs behind MCP?</h3>
+        <p>
+          Markdown in a folder is great for humans who know where to look. It is invisible to a coding agent unless you wire it in.
+          <strong>Model Context Protocol (MCP)</strong> is the standard way to expose tools and readable resources to LLM clients — including VS Code Copilot in Agent mode.
+        </p>
+        <p>ADR Copilot MCP bridges that gap:</p>
+        <ul>
+          <li><strong>Tools</strong> — <code>trace_list</code>, <code>trace_draft</code>, <code>trace_drift_check</code> let the agent query and update the ledger</li>
+          <li><strong>Resources</strong> — <code>adr://decisions/0042-use-kafka</code> gives the full record as citable context</li>
+          <li><strong>Prompts</strong> — <code>red_team_adr</code> runs a structured review before you mark a decision accepted</li>
+        </ul>
+        <p>
+          We use a <strong>TRACE</strong> variant of the classic ADR format (Trigger, Reversibility, Alternatives, Consequences, Evidence) with extra machine-readable fields — <code>status</code>, <code>reversibility</code>, <code>linked_paths</code> — so the server can score completeness and detect when code has moved on but the doc has not.
+        </p>
+
+        <div class="callout">
+          <strong>In one sentence:</strong> ADRs capture <em>why</em> the system looks the way it does. ADR Copilot MCP makes those records first-class context for your VS Code agent — searchable, linkable, and drift-aware.
+        </div>
+
+        <h3>Concrete example</h3>
+        <p>
+          Your team adopted Redis for job timers because Postgres polling blew the scheduler p99 budget.
+          Six months later, a junior engineer asks Copilot to "replace Redis with in-memory timers for simplicity."
+        </p>
+        <p>
+          <strong>Without ADR Copilot:</strong> the agent may agree — it sees timer code and no written constraint.<br />
+          <strong>With ADR Copilot:</strong> the agent calls <code>trace_get("0017")</code>, reads that the decision is <code>irreversible</code> at current scale, cites the Evidence section (p99 dropped from 1.2s to 180ms), and suggests a new ADR if requirements truly changed.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 01 — End-to-end flow</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+flowchart LR
+  Dev["Engineer"] --> VS["VS Code Agent"]
+  VS --> MCP["FastMCP server.py"]
+  MCP --> FS["docs/decisions/*.md"]
+  MCP --> Git["git log drift check"]
+  MCP --> VS
+  VS --> Dev
+            </pre>
+          </div>
+        </div>
+
+        <div class="hld-panel">
+          <span class="hld-panel-label">Prerequisites</span>
+          <ul>
+            <li>Python 3.10+ and <code>pip</code></li>
+            <li>VS Code with <a href="https://marketplace.visualstudio.com/items?itemName=GitHub.copilot" rel="noopener noreferrer">GitHub Copilot</a></li>
+            <li>Copilot Chat → <strong>Agent</strong> mode (not Ask)</li>
+            <li>Optional: git repo for drift detection</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="step-1">
+        <h2>Step 1 — Project setup</h2>
+        <p>
+          All tutorial code lives in the <strong>starter kit</strong>. Open this folder as your VS Code workspace root:
+        </p>
+        <pre><code>topics/ai/build-adr-copilot-mcp/starter/</code></pre>
+        <p>From the repo root, set up the environment:</p>
+        <pre><code>cd topics/ai/build-adr-copilot-mcp/starter
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install fastmcp pyyaml</code></pre>
+
+        <div class="hld-panel hld-panel--wide">
+          <span class="hld-panel-label">File map — paths relative to <code>starter/</code></span>
+          <h3>Where each file goes</h3>
+          <table>
+            <thead><tr><th>File</th><th>Path (from <code>starter/</code>)</th></tr></thead>
+            <tbody>
+              <tr><td><code>requirements.txt</code></td><td><code>requirements.txt</code></td></tr>
+              <tr><td><code>trace_schema.py</code></td><td><code>trace_schema.py</code></td></tr>
+              <tr><td><code>adr_store.py</code></td><td><code>adr_store.py</code></td></tr>
+              <tr><td><code>graph.py</code></td><td><code>graph.py</code></td></tr>
+              <tr><td><code>scoring.py</code></td><td><code>scoring.py</code></td></tr>
+              <tr><td><code>server.py</code></td><td><code>server.py</code></td></tr>
+              <tr><td><code>mcp.json</code></td><td><code>.vscode/mcp.json</code></td></tr>
+              <tr><td>Decision ledger</td><td><code>docs/decisions/*.md</code></td></tr>
+            </tbody>
+          </table>
+          <p style="margin-top:0.75rem;margin-bottom:0;">From the blog article page, the same folder is <code><a href="starter/">starter/</a></code>. From the repo root, use <code>topics/ai/build-adr-copilot-mcp/starter/</code>.</p>
+        </div>
+
+        <p>Save dependencies for teammates:</p>
+        <pre><code># starter/requirements.txt
+fastmcp>=2.10.0
+pyyaml>=6.0.2</code></pre>
+        <p>Create the ledger directory:</p>
+        <pre><code>mkdir -p docs/decisions</code></pre>
+        <p>
+          The starter kit ships with one sample decision file you can open and copy from:
+          <a href="starter/docs/decisions/0001-adopt-trace-ledger-for-architecture-decisions.md"><code>starter/docs/decisions/0001-adopt-trace-ledger-for-architecture-decisions.md</code></a>.
+          It is a real TRACE record (YAML frontmatter + five sections) — ADR <code>0001</code>, status <code>accepted</code> — not a placeholder link.
+        </p>
+      </section>
+
+      <section id="step-2">
+        <h2>Step 2 — TRACE schema</h2>
+        <p>
+          Before MCP wiring, define what a decision <em>is</em>. We use five body sections — <strong>T</strong>rigger, <strong>R</strong>eversibility, <strong>A</strong>lternatives, <strong>C</strong>onsequences, <strong>E</strong>vidence — plus YAML frontmatter the tools can parse.
+        </p>
+        <p>
+          Create this file (complete — nothing omitted):
+          <br /><strong>Path:</strong> <code>starter/trace_schema.py</code> (or <code>trace_schema.py</code> if <code>starter/</code> is your workspace root)
+        </p>
+        <pre><code>"""TRACE decision record schema — frontmatter fields and section headings."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Literal
+
+AdrStatus = Literal["proposed", "accepted", "deprecated", "superseded"]
+Reversibility = Literal["easy", "moderate", "hard", "irreversible"]
+
+TRACE_SECTIONS: tuple[str, ...] = (
+    "Trigger",
+    "Reversibility notes",
+    "Alternatives considered",
+    "Consequences",
+    "Evidence",
+)
+
+
+@dataclass
+class TraceFrontmatter:
+    id: str
+    title: str
+    status: AdrStatus = "proposed"
+    created: str = ""
+    updated: str | None = None
+    authors: list[str] = field(default_factory=list)
+    reversibility: Reversibility = "moderate"
+    supersedes: str | None = None
+    superseded_by: str | None = None
+    relates_to: list[str] = field(default_factory=list)
+    linked_paths: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ParsedAdr:
+    file_path: str
+    slug: str
+    frontmatter: TraceFrontmatter
+    body: str
+    sections: dict[str, str]
+
+
+def slug_from_id_and_title(adr_id: str, title: str) -> str:
+    kebab = "".join(c if c.isalnum() else "-" for c in title.lower())
+    while "--" in kebab:
+        kebab = kebab.replace("--", "-")
+    kebab = kebab.strip("-")[:48]
+    return f"{adr_id}-{kebab}"
+
+
+def empty_trace_body(trigger: str) -> str:
+    parts: list[str] = []
+    for heading in TRACE_SECTIONS:
+        content = trigger if heading == "Trigger" else "_TBD_"
+        parts.append(f"## {heading}\n\n{content}")
+    return "\n\n".join(parts) + "\n"</code></pre>
+        <p>
+          <code>linked_paths</code> is the hook for drift detection later — each path is a file this decision governs.
+          <code>empty_trace_body()</code> is called by <code>adr_store.py</code> when <code>trace_draft</code> creates a new proposed record.
+        </p>
+      </section>
+
+      <section id="step-3">
+        <h2>Step 3 — Ledger store</h2>
+        <p>
+          MCP tools should not read raw files ad hoc. A small <code>AdrStore</code> class in <code>adr_store.py</code> handles list, get, draft, and link operations.
+        </p>
+        <pre><code>class AdrStore:
+    def __init__(self, root_dir: Path):
+        self.root_dir = root_dir
+
+    def list_all(self) -> list[ParsedAdr]:
+        ...
+
+    def draft(self, adr_id: str, title: str, trigger: str) -> ParsedAdr:
+        body = empty_trace_body(trigger)  # fills ## headings, _TBD_ elsewhere
+        _write_markdown(path, frontmatter, body)</code></pre>
+        <p>Each file is named <code>{id}-{kebab-title}.md</code>. The store parses frontmatter with PyYAML and splits body sections by <code>##</code> headings.</p>
+      </section>
+
+      <section id="step-4">
+        <h2>Step 4 — Hello, FastMCP</h2>
+        <p>
+          FastMCP turns plain Python functions into MCP tools. No hand-written JSON schemas — type hints become the tool contract.
+        </p>
+        <p>Create <code>server.py</code> with the smallest possible server:</p>
+        <pre><code>#!/usr/bin/env python3
+from pathlib import Path
+import os
+from fastmcp import FastMCP
+from adr_store import AdrStore
+
+REPO_ROOT = Path(os.environ.get("ADR_REPO_ROOT", Path.cwd()))
+ADR_ROOT = Path(os.environ.get("ADR_ROOT", REPO_ROOT / "docs" / "decisions"))
+store = AdrStore(ADR_ROOT)
+
+mcp = FastMCP(
+    name="adr-copilot",
+    instructions="TRACE architecture decision ledger for VS Code agents.",
+)
+
+if __name__ == "__main__":
+    store.ensure_root()
+    mcp.run()   # stdio transport — VS Code spawns this process</code></pre>
+        <p>Run a quick smoke test (the process waits on stdin — Ctrl+C to exit):</p>
+        <pre><code>python server.py</code></pre>
+        <div class="callout">
+          <strong>stdio, not HTTP.</strong> Local IDE clients spawn your server as a child process. <code>mcp.run()</code> speaks MCP over stdin/stdout. Do not print debug logs to stdout — it breaks the protocol.
+        </div>
+      </section>
+
+      <section id="step-5">
+        <h2>Step 5 — Tools</h2>
+        <p>Add one tool at a time. Decorate functions with <code>@mcp.tool</code>. Add <code>import json</code> at the top of <code>server.py</code> if it is not there yet.</p>
+
+        <h3>First tool: <code>trace_list</code></h3>
+        <pre><code>@mcp.tool
+def trace_list(status: str | None = None) -> str:
+    """List TRACE decisions with optional status filter (proposed, accepted, deprecated, superseded)."""
+    adrs = store.list_all()
+    if status:
+        adrs = [a for a in adrs if a.frontmatter.status == status]
+    payload = [
+        {
+            "id": a.frontmatter.id,
+            "title": a.frontmatter.title,
+            "status": a.frontmatter.status,
+            "reversibility": a.frontmatter.reversibility,
+            "resource": f"adr://decisions/{a.slug}",
+        }
+        for a in adrs
+    ]
+    return json.dumps(payload, indent=2)</code></pre>
+        <p>
+          <strong>Try it:</strong> Save <code>server.py</code>, restart the MCP server (reload the VS Code window or toggle the MCP connection in Copilot settings), then open Copilot Chat in <strong>Agent</strong> mode and ask:
+          <em>List all architecture decisions in the TRACE ledger.</em>
+          Confirm the agent calls <code>trace_list</code> and returns JSON.
+        </p>
+
+        <h3>Next: <code>trace_draft</code></h3>
+        <p>Add this next, then test in Agent mode.</p>
+        <pre><code>@mcp.tool
+def trace_draft(
+    adr_id: str,
+    title: str,
+    trigger: str,
+    authors: list[str] | None = None,
+    reversibility: str = "moderate",
+    tags: list[str] | None = None,
+    linked_paths: list[str] | None = None,
+) -> str:
+    """Create a proposed TRACE decision with section skeletons."""
+    adr = store.draft(
+        adr_id=adr_id,
+        title=title,
+        trigger=trigger,
+        authors=authors,
+        reversibility=reversibility,  # type: ignore[arg-type]
+        tags=tags,
+        linked_paths=linked_paths,
+    )
+    return json.dumps(
+        {
+            "created": adr.slug,
+            "path": adr.file_path,
+            "resource": f"adr://decisions/{adr.slug}",
+            "message": "Proposed TRACE decision drafted. Review sections before accepting.",
+        },
+        indent=2,
+    )</code></pre>
+        <p>
+          <strong>Try it:</strong> Restart the MCP server again. In Agent mode, prompt:
+        </p>
+        <pre><code>Draft ADR 0002: move job timers to Redis.
+Trigger: scheduler p99 &gt; 800ms under Postgres polling.</code></pre>
+        <p>
+          Open <code>docs/decisions/</code> and confirm a new <code>proposed</code> markdown file appeared. The JSON response should include <code>created</code>, <code>path</code>, and <code>resource</code>.
+        </p>
+
+        <h3>Then: <code>trace_graph</code></h3>
+        <p>
+          Add <code>from graph import build_decision_graph</code> near the top of <code>server.py</code> (the starter kit already ships <code>graph.py</code>), then add this tool:
+        </p>
+        <pre><code>@mcp.tool
+def trace_graph() -> str:
+    """Return decision graph nodes and edges (supersedes, relates_to)."""
+    return json.dumps(build_decision_graph(store.list_all()), indent=2)</code></pre>
+        <p>
+          <strong>Try it:</strong> Restart MCP one more time. In Agent mode, ask:
+          <em>Show the decision graph — which ADRs supersede or relate to each other?</em>
+          You should get JSON with <code>nodes</code> and <code>edges</code> (empty or sparse until you add <code>supersedes</code> / <code>relates_to</code> links in frontmatter).
+        </p>
+
+        <p>Build the rest incrementally:</p>
+        <table>
+          <thead><tr><th>Tool</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>trace_get</code></td><td>Full record + completeness score</td></tr>
+            <tr><td><code>trace_link_paths</code></td><td>Attach governed file paths</td></tr>
+            <tr><td><code>trace_drift_check</code></td><td>Git freshness vs linked_paths</td></tr>
+            <tr><td><code>trace_score</code></td><td>A–F rubric with explicit gaps</td></tr>
+          </tbody>
+        </table>
+        <p>Return JSON strings — agents parse structured results reliably and you avoid FastMCP serialization edge cases on nested dataclasses.</p>
+
+        <h3 id="trace-draft"><code>trace_draft</code> — start a new decision</h3>
+        <p>
+          <code>trace_draft</code> is the write path for new architecture decisions. Instead of asking the agent to invent a markdown file from scratch, the tool creates a <strong>proposed</strong> TRACE record with the right frontmatter, filename, and section headings already in place.
+          You supply the four-digit id, a short title, and the Trigger text — the situation that forced the choice. Everything else starts as <code>_TBD_</code> until a human fills it in.
+        </p>
+        <p><strong>When to use it:</strong></p>
+        <ul>
+          <li>A PR or design discussion surfaces a new architectural choice worth recording</li>
+          <li>You want the agent to scaffold the file, not freestyle the YAML or section order</li>
+          <li>The decision is still under review — status stays <code>proposed</code> until you accept it in review</li>
+        </ul>
+        <p>Typical Agent prompt (Step 10 uses this pattern):</p>
+        <pre><code>Draft ADR 0002: move job timers to Redis.
+Trigger: scheduler p99 &gt; 800ms under Postgres polling.</code></pre>
+        <p>Under the hood, the tool calls <code>store.draft()</code> with those arguments. The JSON it returns tells the agent where the file landed:</p>
+        <pre><code>{
+  "created": "0002-move-job-timers-to-redis",
+  "path": "docs/decisions/0002-move-job-timers-to-redis.md",
+  "resource": "adr://decisions/0002-move-job-timers-to-redis",
+  "message": "Proposed TRACE decision drafted. Review sections before accepting."
+}</code></pre>
+        <p>
+          The file on disk follows the naming rule from Step 3: <code>{id}-{kebab-title}.md</code>.
+          Frontmatter includes <code>status: proposed</code>, today's date, and optional <code>authors</code>, <code>reversibility</code>, <code>tags</code>, and <code>linked_paths</code> if you passed them.
+          The body is the TRACE skeleton from Step 2 — five <code>##</code> headings with your Trigger filled in and <code>_TBD_</code> placeholders elsewhere.
+          After drafting, the usual next steps are <code>trace_link_paths</code> to attach governed files, <code>trace_score</code> to see what's missing, and the <code>red_team_adr</code> prompt before you flip status to <code>accepted</code>.
+        </p>
+
+        <h3 id="trace-graph"><code>trace_graph</code> — see how decisions connect</h3>
+        <p>
+          Individual ADRs answer <em>what we decided</em>. <code>trace_graph</code> answers <em>how decisions relate to each other</em>.
+          It takes no arguments — it scans every record in the ledger and returns a lightweight graph: <strong>nodes</strong> (one per ADR) and <strong>edges</strong> drawn from frontmatter links.
+        </p>
+        <p>Each node carries <code>id</code>, <code>title</code>, and <code>status</code> so the agent can filter for active vs deprecated records without opening every file.</p>
+
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label">Edge: <code>supersedes</code></span>
+            <h3>Replacement chain</h3>
+            <ul>
+              <li>Comes from <code>supersedes</code> or <code>superseded_by</code> in frontmatter</li>
+              <li>Direction: newer decision → older decision it replaces</li>
+              <li>Example: ADR <code>0022</code> supersedes <code>0017</code> when you move off Redis timers</li>
+              <li>Use when tracing rollback cost or finding which record is still authoritative</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label">Edge: <code>relates_to</code></span>
+            <h3>Soft links</h3>
+            <ul>
+              <li>Comes from the <code>relates_to</code> list in frontmatter</li>
+              <li>Non-directional dependency — both decisions still stand</li>
+              <li>Example: timer ADR <code>0017</code> relates to scheduler SLA ADR <code>0004</code></li>
+              <li>Use for blast-radius checks: "what else should we re-read before changing this?"</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 02 — Decision graph: supersedes vs relates_to</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+flowchart LR
+  SLA["0004 Scheduler SLA\naccepted"]
+  Redis["0017 Redis job timers\naccepted"]
+  Mem["0022 In-memory timers\nproposed"]
+  Mem -->|"supersedes"| Redis
+  Redis -->|"relates_to"| SLA
+            </pre>
+          </div>
+        </div>
+
+        <p>
+          <strong>Example use case — impact analysis before deprecating an ADR:</strong>
+          Your team wants to retire ADR <code>0017</code> (Redis for job timers) and switch to in-memory timers.
+          Before merging, ask the agent to call <code>trace_graph</code>.
+          Incoming <code>supersedes</code> edges show whether a replacement ADR already exists (here, proposed <code>0022</code>).
+          Outgoing <code>relates_to</code> edges flag decisions that assumed Redis timers — like the scheduler SLA — so reviewers know which records to update or re-validate.
+          The <code>onboard_teammate</code> and <code>deprecation_plan</code> prompts in Step 7 read the same graph data when explaining blast radius.
+        </p>
+        <pre><code>{
+  "nodes": [
+    { "id": "0004", "title": "Scheduler p99 SLA", "status": "accepted" },
+    { "id": "0017", "title": "Redis for job timers", "status": "accepted" },
+    { "id": "0022", "title": "In-memory job timers", "status": "proposed" }
+  ],
+  "edges": [
+    { "from": "0022", "to": "0017", "kind": "supersedes" },
+    { "from": "0017", "to": "0004", "kind": "relates_to" }
+  ]
+}</code></pre>
+        <p>
+          <code>trace_graph</code> is read-only — it never mutates the ledger.
+          To add or change relationships, edit frontmatter on the relevant markdown files (or have the agent draft a superseding ADR with <code>trace_draft</code> and set <code>supersedes: "0017"</code> in the new record).
+        </p>
+      </section>
+
+      <section id="step-6">
+        <h2>Step 6 — Resources</h2>
+        <p>
+          Tools <em>do</em> things. Resources <em>are</em> readable context — like GET endpoints. Use URI templates so the agent can fetch a specific decision:
+        </p>
+        <pre><code>@mcp.resource("adr://index")
+def decision_index() -> str:
+    """Tabular index of all TRACE decisions."""
+    return store.build_index_markdown()
+
+@mcp.resource("adr://decisions/{slug}")
+def decision_resource(slug: str) -> str:
+    """Full TRACE markdown for one decision."""
+    adr = store.get_by_slug(slug)
+    score = score_adr(adr)
+    return f"# {adr.frontmatter.id} — {adr.frontmatter.title}\n\n..."</code></pre>
+        <p>When Copilot answers “why did we pick this queue?”, it should cite <code>adr://decisions/0042-use-kafka-for-events</code> — grounded, auditable context.</p>
+      </section>
+
+      <section id="step-7">
+        <h2>Step 7 — Prompts</h2>
+        <p>Prompts are reusable instruction templates. FastMCP injects live ledger data before the model sees them:</p>
+        <pre><code>@mcp.prompt
+def red_team_adr(adr_id: str) -> str:
+    """Stress-test a decision before accepting it."""
+    adr = store.get_by_id(adr_id)
+    score = score_adr(adr)
+    return f"""You are a staff engineer reviewing ADR {adr_id}.
+Completeness: {score.grade}. Gaps: {score.gaps}
+Challenge assumptions, failure modes, and rollback cost..."""</code></pre>
+        <p>Also ship <code>onboard_teammate</code> and <code>deprecation_plan</code> — three prompts that cover the decision lifecycle.</p>
+      </section>
+
+      <section id="step-8">
+        <h2>Step 8 — Drift &amp; scoring</h2>
+        <p>
+          <code>scoring.py</code> grades each TRACE section and flags missing <code>linked_paths</code>.
+          <code>detect_drift()</code> runs <code>git log -1 --format=%cI -- &lt;path&gt;</code> and compares against the ADR’s <code>updated</code> date.
+        </p>
+        <pre><code>if changed_at > f"{adr_updated}T00:00:00":
+    severity = "critical" if reversibility == "irreversible" else "warn"</code></pre>
+        <p>Irreversible decisions with drift become release blockers — exactly the kind of signal architects want agents to surface proactively.</p>
+      </section>
+
+      <section id="step-9">
+        <h2>Step 9 — Wire VS Code</h2>
+        <p>
+          VS Code reads <code>.vscode/mcp.json</code>. The top-level key is <strong><code>servers</code></strong> — not <code>mcpServers</code> used by Claude Desktop or Cursor.
+        </p>
+        <pre><code>{
+  "servers": {
+    "adr-copilot": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["${workspaceFolder}/server.py"],
+      "env": {
+        "ADR_ROOT": "${workspaceFolder}/docs/decisions",
+        "ADR_REPO_ROOT": "${workspaceFolder}"
+      }
+    }
+  }
+}</code></pre>
+
+        <h3>How Agent mode talks to MCP (entry and exit)</h3>
+        <p>
+          Every Copilot Agent request follows the same loop. <strong>Entry</strong> is your chat prompt.
+          <strong>Exit</strong> is the grounded reply — after one or more tool round-trips through <code>server.py</code>.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 03 — Entry / exit flow: Agent to tools and back</p>
+          <div class="diagram-frame diagram-frame--dark diagram-frame--arch">
+            <svg class="arch-flow-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 360" width="100%" height="auto" role="img" aria-label="VS Code Agent MCP entry and exit flow with tools">
+              <defs>
+                <marker id="flow-entry" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ffffff"/></marker>
+                <marker id="flow-return" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#2dd4bf"/></marker>
+              </defs>
+              <rect class="arch-lane arch-lane--clients" x="8" y="48" width="148" height="248" rx="8"/>
+              <rect class="arch-lane arch-lane--api" x="164" y="48" width="148" height="248" rx="8"/>
+              <rect class="arch-lane arch-lane--compute" x="320" y="48" width="148" height="248" rx="8"/>
+              <rect class="arch-lane arch-lane--storage" x="476" y="48" width="168" height="248" rx="8"/>
+              <rect class="arch-lane arch-lane--queue" x="652" y="48" width="148" height="248" rx="8"/>
+              <rect class="arch-lane arch-lane--consumers" x="808" y="48" width="224" height="248" rx="8"/>
+              <text class="arch-lane-title" x="82" y="64" text-anchor="middle">ENTRY</text>
+              <text class="arch-lane-title" x="238" y="64" text-anchor="middle">VS Code Agent</text>
+              <text class="arch-lane-title" x="394" y="64" text-anchor="middle">MCP Client</text>
+              <text class="arch-lane-title" x="560" y="64" text-anchor="middle">server.py</text>
+              <text class="arch-lane-title" x="726" y="64" text-anchor="middle">Tools</text>
+              <text class="arch-lane-title" x="920" y="64" text-anchor="middle">EXIT</text>
+              <rect class="arch-node arch-node--clients" x="34" y="108" width="96" height="52" rx="6"/>
+              <text class="arch-node-label" x="82" y="130">User prompt</text>
+              <text class="arch-node-sub" x="82" y="146">chat input</text>
+              <rect class="arch-node arch-node--api" x="178" y="98" width="120" height="44" rx="6"/>
+              <text class="arch-node-label" x="238" y="116">Copilot LLM</text>
+              <text class="arch-node-sub" x="238" y="130">plans tool call</text>
+              <rect class="arch-node arch-node--api" x="178" y="168" width="120" height="44" rx="6"/>
+              <text class="arch-node-label" x="238" y="186">Agent loop</text>
+              <text class="arch-node-sub" x="238" y="200">observe result</text>
+              <rect class="arch-node arch-node--compute" x="334" y="108" width="120" height="44" rx="6"/>
+              <text class="arch-node-label" x="394" y="126">stdio pipe</text>
+              <text class="arch-node-sub" x="394" y="140">spawn process</text>
+              <rect class="arch-node arch-node--compute" x="334" y="178" width="120" height="44" rx="6"/>
+              <text class="arch-node-label" x="394" y="196">JSON-RPC</text>
+              <text class="arch-node-sub" x="394" y="210">tools/call</text>
+              <rect class="arch-node arch-node--postgres" x="494" y="98" width="132" height="52" rx="6"/>
+              <text class="arch-node-label" x="560" y="118">FastMCP</text>
+              <text class="arch-node-sub" x="560" y="134">route to handler</text>
+              <rect class="arch-node arch-node--cassandra" x="494" y="178" width="132" height="52" rx="6"/>
+              <text class="arch-node-label" x="560" y="198">AdrStore</text>
+              <text class="arch-node-sub" x="560" y="214">read / write .md</text>
+              <rect class="arch-queue-pulse" x="668" y="108" width="116" height="64" rx="8"/>
+              <rect class="arch-node arch-node--queue" x="674" y="114" width="104" height="52" rx="6"/>
+              <text class="arch-node-label" x="726" y="134">trace_get</text>
+              <text class="arch-node-sub" x="726" y="150">trace_list</text>
+              <rect class="arch-node arch-node--redis" x="674" y="196" width="104" height="48" rx="6"/>
+              <text class="arch-node-label" x="726" y="216">adr://</text>
+              <text class="arch-node-sub" x="726" y="232">resources</text>
+              <rect class="arch-node arch-node--consumers" x="824" y="108" width="120" height="44" rx="6"/>
+              <text class="arch-node-label" x="884" y="126">tool result</text>
+              <text class="arch-node-sub" x="884" y="140">JSON text</text>
+              <rect class="arch-node arch-node--external" x="824" y="178" width="120" height="52" rx="6"/>
+              <text class="arch-node-label" x="884" y="198">Chat reply</text>
+              <text class="arch-node-sub" x="884" y="214">cited answer</text>
+              <path class="arch-edge--sync" d="M130,134 L178,120" marker-end="url(#flow-entry)"/>
+              <text class="arch-edge-label" x="148" y="118">1 prompt</text>
+              <path class="arch-edge--sync" d="M238,142 L334,130" marker-end="url(#flow-entry)"/>
+              <text class="arch-edge-label" x="278" y="124">2 invoke</text>
+              <path class="arch-edge--sync" d="M394,152 L394,178" marker-end="url(#flow-entry)"/>
+              <text class="arch-edge-label" x="406" y="168">3 RPC</text>
+              <path class="arch-edge--sync" d="M454,200 L494,200" marker-end="url(#flow-entry)"/>
+              <text class="arch-edge-label" x="468" y="192">4 dispatch</text>
+              <path class="arch-edge--sync" d="M560,150 L674,140" marker-end="url(#flow-entry)"/>
+              <text class="arch-edge-label" x="608" y="132">5 execute</text>
+              <path class="arch-edge--sync" d="M626,214 L674,220" marker-end="url(#flow-entry)"/>
+              <text class="arch-edge-label" x="638" y="208">read</text>
+              <path class="arch-edge--async" d="M780,140 L824,130" marker-end="url(#flow-return)"/>
+              <text class="arch-edge-label" x="792" y="122">6 result</text>
+              <path class="arch-edge--async" d="M884,152 L884,178" marker-end="url(#flow-return)"/>
+              <text class="arch-edge-label" x="896" y="168">7 render</text>
+              <path class="arch-edge--async" d="M824,204 C700,280 238,280 238,212" marker-end="url(#flow-return)"/>
+              <text class="arch-edge-label" x="500" y="296">8 loop until done</text>
+              <path class="arch-edge--async" d="M178,190 C130,190 82,190 82,160" marker-end="url(#flow-return)"/>
+              <text class="arch-edge-label" x="108" y="182">EXIT</text>
+              <rect x="24" y="12" width="72" height="22" rx="4" fill="#134e4a" stroke="#2dd4bf"/>
+              <text x="60" y="27" text-anchor="middle" fill="#ecfdf8" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600">ENTRY</text>
+              <rect x="944" y="12" width="72" height="22" rx="4" fill="#1e3a5f" stroke="#60a5fa"/>
+              <text x="980" y="27" text-anchor="middle" fill="#ecfdf8" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600">EXIT</text>
+            </svg>
+            <div class="arch-legend" role="list">
+              <div class="arch-legend-section">
+                <p class="arch-legend-title">Path styles</p>
+                <p class="arch-legend-row"><span class="arch-line-sample"></span>Solid — forward path (prompt to tool execution)</p>
+                <p class="arch-legend-row"><span class="arch-line-sample arch-line-sample--async"></span>Dashed — return path (result to chat, agent loop)</p>
+              </div>
+              <div class="arch-legend-section">
+                <p class="arch-legend-title">Numbered steps</p>
+                <p class="arch-legend-row">1 prompt → 2 invoke → 3 RPC → 4 dispatch → 5 execute → 6 result → 7 render → 8 loop</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 04 — MCP protocol sequence (one tool call)</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant A as VS Code Agent
+  participant C as MCP Client
+  participant S as server.py
+  participant T as trace_get
+  participant F as decisions store
+
+  Note over U,A: ENTRY - user prompt
+  U->>A: Why did we adopt TRACE?
+  A->>C: tools/call trace_get id=0001
+  C->>S: JSON-RPC over stdio
+  S->>T: route handler
+  T->>F: read 0001 markdown
+  F-->>T: markdown + frontmatter
+  T-->>S: JSON result
+  S-->>C: tool response
+  C-->>A: structured context
+  Note over A,U: EXIT - cited reply
+  A-->>U: Answer with adr source
+            </pre>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Snapshot A — <code>mcp.json</code> uses the <code>servers</code> key</p>
+          <div class="diagram-frame diagram-frame--snapshot">
+            <img class="vscode-snapshot" src="./assets/vscode-mcp-json.svg" width="920" height="520" alt="VS Code editor showing mcp.json with servers key and python3 stdio command" loading="eager" />
+          </div>
+        </div>
+
+        <h3>Setup checklist</h3>
+        <ol>
+          <li>Open the <code>starter/</code> folder as your VS Code workspace root</li>
+          <li>Activate venv so <code>python3</code> has <code>fastmcp</code> installed (or use full path to venv python in <code>command</code>)</li>
+          <li>Command Palette → <strong>MCP: List Servers</strong> → confirm <code>adr-copilot</code> is Running</li>
+          <li>Copilot Chat → mode dropdown → select <strong>Agent</strong></li>
+        </ol>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Snapshot B — Agent mode enables tool calls</p>
+          <div class="diagram-frame diagram-frame--snapshot">
+            <img class="vscode-snapshot" src="./assets/vscode-agent-mode.svg" width="920" height="520" alt="VS Code Copilot Chat with Agent mode selected and trace_list tool result" loading="eager" />
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>#1 mistake:</strong> Tools work in <em>Agent</em> mode only. If your server “does nothing”, check the mode dropdown first, then <strong>MCP: List Servers</strong> output for crash logs.
+        </div>
+
+        <p>Docs: <a href="https://code.visualstudio.com/docs/copilot/customization/mcp-servers" rel="noopener noreferrer">Add and manage MCP servers in VS Code</a></p>
+      </section>
+
+      <section id="step-10">
+        <h2>Step 10 — Test in Agent mode</h2>
+        <p>Run this prompt sequence in Copilot Chat (Agent mode):</p>
+        <ol>
+          <li><em>“List our TRACE architecture decisions.”</em></li>
+          <li><em>“Score ADR 0001 — what’s missing?”</em></li>
+          <li><em>“Draft ADR 0002: move job timers to Redis. Trigger: scheduler p99 &gt; 800ms.”</em></li>
+          <li><em>“Run trace_drift_check — anything stale?”</em></li>
+          <li><em>“Red-team ADR 0002 before we accept it.”</em> (uses <code>red_team_adr</code> prompt)</li>
+        </ol>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Snapshot C — MCP server running with tool trace</p>
+          <div class="diagram-frame diagram-frame--snapshot">
+            <img class="vscode-snapshot" src="./assets/vscode-mcp-tools.svg" width="920" height="520" alt="MCP List Servers showing adr-copilot running with trace_drift_check and resource read" loading="eager" />
+          </div>
+        </div>
+
+        <p>You should see:</p>
+        <ul>
+          <li>Tool call chips in the chat (<code>trace_list</code>, <code>trace_drift_check</code>)</li>
+          <li>Answers citing <code>adr://</code> URIs</li>
+          <li>A new markdown file in <code>docs/decisions/</code> after <code>trace_draft</code></li>
+        </ul>
+
+        <div class="hld-panel hld-panel--wide">
+          <span class="hld-panel-label">What you built</span>
+          <h3>From zero to agent-native governance</h3>
+          <ul>
+            <li>Original TRACE ledger format — not copied from public MCP demos</li>
+            <li>7 tools, 2 resource templates, 3 lifecycle prompts</li>
+            <li>Drift radar tied to git and reversibility class</li>
+            <li>VS Code Agent mode as the MCP client — no separate desktop config</li>
+          </ul>
+        </div>
+      </section>
+
+      <nav class="article-nav" aria-label="Article navigation">
+        <a class="article-nav-link" href="../">← AI topics</a>
+        <a class="article-nav-link" href="starter/">Download starter →</a>
+      </nav>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <div class="footer-brand">Tech Blog by Dip</div>
+        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span></p>
+      </div>
+    </div>
+  </footer>
+  <script src="../../../assets/js/main.js"></script>
+</body>
+</html>

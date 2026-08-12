@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "adr-copilot": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["${workspaceFolder}/server.py"],
+      "env": {
+        "ADR_ROOT": "${workspaceFolder}/docs/decisions",
+        "ADR_REPO_ROOT": "${workspaceFolder}"
+      }
+    }
+  }
+}

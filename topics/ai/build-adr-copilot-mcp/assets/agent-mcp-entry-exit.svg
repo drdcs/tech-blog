@@ -1,0 +1,106 @@
+<svg class="arch-flow-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 360" role="img" aria-label="VS Code Agent MCP entry and exit flow with tools">
+  <defs>
+    <marker id="flow-entry" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#ffffff"/>
+    </marker>
+    <marker id="flow-return" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#2dd4bf"/>
+    </marker>
+  </defs>
+
+  <rect class="arch-lane arch-lane--clients" x="8" y="48" width="148" height="248" rx="8"/>
+  <rect class="arch-lane arch-lane--api" x="164" y="48" width="148" height="248" rx="8"/>
+  <rect class="arch-lane arch-lane--compute" x="320" y="48" width="148" height="248" rx="8"/>
+  <rect class="arch-lane arch-lane--storage" x="476" y="48" width="168" height="248" rx="8"/>
+  <rect class="arch-lane arch-lane--queue" x="652" y="48" width="148" height="248" rx="8"/>
+  <rect class="arch-lane arch-lane--consumers" x="808" y="48" width="224" height="248" rx="8"/>
+
+  <text class="arch-lane-title" x="82" y="64" text-anchor="middle">ENTRY</text>
+  <text class="arch-lane-title" x="238" y="64" text-anchor="middle">VS Code Agent</text>
+  <text class="arch-lane-title" x="394" y="64" text-anchor="middle">MCP Client</text>
+  <text class="arch-lane-title" x="560" y="64" text-anchor="middle">server.py</text>
+  <text class="arch-lane-title" x="726" y="64" text-anchor="middle">Tools</text>
+  <text class="arch-lane-title" x="920" y="64" text-anchor="middle">EXIT</text>
+
+  <rect class="arch-node arch-node--clients" x="34" y="108" width="96" height="52" rx="6"/>
+  <text class="arch-node-label" x="82" y="130">User prompt</text>
+  <text class="arch-node-sub" x="82" y="146">chat input</text>
+
+  <rect class="arch-node arch-node--api" x="178" y="98" width="120" height="44" rx="6"/>
+  <text class="arch-node-label" x="238" y="116">Copilot LLM</text>
+  <text class="arch-node-sub" x="238" y="130">plans tool call</text>
+
+  <rect class="arch-node arch-node--api" x="178" y="168" width="120" height="44" rx="6"/>
+  <text class="arch-node-label" x="238" y="186">Agent loop</text>
+  <text class="arch-node-sub" x="238" y="200">observe result</text>
+
+  <rect class="arch-node arch-node--compute" x="334" y="108" width="120" height="44" rx="6"/>
+  <text class="arch-node-label" x="394" y="126">stdio pipe</text>
+  <text class="arch-node-sub" x="394" y="140">spawn process</text>
+
+  <rect class="arch-node arch-node--compute" x="334" y="178" width="120" height="44" rx="6"/>
+  <text class="arch-node-label" x="394" y="196">JSON-RPC</text>
+  <text class="arch-node-sub" x="394" y="210">tools/call</text>
+
+  <rect class="arch-node arch-node--postgres" x="494" y="98" width="132" height="52" rx="6"/>
+  <text class="arch-node-label" x="560" y="118">FastMCP</text>
+  <text class="arch-node-sub" x="560" y="134">route to handler</text>
+
+  <rect class="arch-node arch-node--cassandra" x="494" y="178" width="132" height="52" rx="6"/>
+  <text class="arch-node-label" x="560" y="198">AdrStore</text>
+  <text class="arch-node-sub" x="560" y="214">read / write .md</text>
+
+  <rect class="arch-queue-pulse" x="668" y="108" width="116" height="64" rx="8"/>
+  <rect class="arch-node arch-node--queue" x="674" y="114" width="104" height="52" rx="6"/>
+  <text class="arch-node-label" x="726" y="134">trace_get</text>
+  <text class="arch-node-sub" x="726" y="150">trace_list</text>
+
+  <rect class="arch-node arch-node--redis" x="674" y="196" width="104" height="48" rx="6"/>
+  <text class="arch-node-label" x="726" y="216">adr://</text>
+  <text class="arch-node-sub" x="726" y="232">resources</text>
+
+  <rect class="arch-node arch-node--consumers" x="824" y="108" width="120" height="44" rx="6"/>
+  <text class="arch-node-label" x="884" y="126">tool result</text>
+  <text class="arch-node-sub" x="884" y="140">JSON text</text>
+
+  <rect class="arch-node arch-node--external" x="824" y="178" width="120" height="52" rx="6"/>
+  <text class="arch-node-label" x="884" y="198">Chat reply</text>
+  <text class="arch-node-sub" x="884" y="214">cited answer</text>
+
+  <!-- Forward path ENTRY -->
+  <path class="arch-edge--sync" d="M130,134 L178,120" marker-end="url(#flow-entry)"/>
+  <text class="arch-edge-label" x="148" y="118">1 prompt</text>
+
+  <path class="arch-edge--sync" d="M238,142 L334,130" marker-end="url(#flow-entry)"/>
+  <text class="arch-edge-label" x="278" y="124">2 invoke</text>
+
+  <path class="arch-edge--sync" d="M394,152 L394,178" marker-end="url(#flow-entry)"/>
+  <text class="arch-edge-label" x="406" y="168">3 RPC</text>
+
+  <path class="arch-edge--sync" d="M454,200 L494,200" marker-end="url(#flow-entry)"/>
+  <text class="arch-edge-label" x="468" y="192">4 dispatch</text>
+
+  <path class="arch-edge--sync" d="M560,150 L674,140" marker-end="url(#flow-entry)"/>
+  <text class="arch-edge-label" x="608" y="132">5 execute</text>
+
+  <path class="arch-edge--sync" d="M626,214 L674,220" marker-end="url(#flow-entry)"/>
+  <text class="arch-edge-label" x="638" y="208">read</text>
+
+  <!-- Return path EXIT -->
+  <path class="arch-edge--async" d="M780,140 L824,130" marker-end="url(#flow-return)"/>
+  <text class="arch-edge-label" x="792" y="122">6 result</text>
+
+  <path class="arch-edge--async" d="M884,152 L884,178" marker-end="url(#flow-return)"/>
+  <text class="arch-edge-label" x="896" y="168">7 render</text>
+
+  <path class="arch-edge--async" d="M824,204 C700,280 238,280 238,212" marker-end="url(#flow-return)"/>
+  <text class="arch-edge-label" x="500" y="296">8 loop until done</text>
+
+  <path class="arch-edge--async" d="M178,190 C130,190 82,190 82,160" marker-end="url(#flow-return)"/>
+  <text class="arch-edge-label" x="108" y="182">EXIT</text>
+
+  <rect x="24" y="12" width="72" height="22" rx="4" fill="#134e4a" stroke="#2dd4bf"/>
+  <text x="60" y="27" text-anchor="middle" fill="#ecfdf8" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600">ENTRY</text>
+  <rect x="944" y="12" width="72" height="22" rx="4" fill="#1e3a5f" stroke="#60a5fa"/>
+  <text x="980" y="27" text-anchor="middle" fill="#ecfdf8" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600">EXIT</text>
+</svg>

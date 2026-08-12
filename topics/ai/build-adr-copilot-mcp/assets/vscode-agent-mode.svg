@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 520" role="img" aria-label="VS Code Copilot Chat with Agent mode selected">
+  <defs>
+    <linearGradient id="bg-agent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e1e1e"/>
+      <stop offset="100%" stop-color="#252526"/>
+    </linearGradient>
+  </defs>
+  <rect width="920" height="520" rx="10" fill="url(#bg-agent)" stroke="#3c3c3c"/>
+  <rect x="0" y="0" width="56" height="520" fill="#333333"/>
+  <circle cx="28" cy="40" r="10" fill="#007acc"/>
+  <rect x="14" y="80" width="28" height="28" rx="4" fill="#454545"/>
+  <rect x="14" y="120" width="28" height="28" rx="4" fill="#454545"/>
+  <rect x="64" y="0" width="856" height="36" fill="#323233"/>
+  <text x="80" y="23" fill="#cccccc" font-family="Inter, system-ui, sans-serif" font-size="12">starter - VS Code</text>
+  <rect x="64" y="36" width="540" height="484" fill="#1e1e1e"/>
+  <text x="84" y="68" fill="#858585" font-family="JetBrains Mono, monospace" font-size="11">server.py</text>
+  <text x="84" y="96" fill="#9cdcfe" font-family="JetBrains Mono, monospace" font-size="12">from fastmcp import FastMCP</text>
+  <text x="84" y="116" fill="#d4d4d4" font-family="JetBrains Mono, monospace" font-size="12">mcp = FastMCP("adr-copilot")</text>
+  <rect x="612" y="36" width="308" height="484" fill="#252526" stroke="#3c3c3c"/>
+  <text x="628" y="62" fill="#cccccc" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">Chat</text>
+  <rect x="628" y="74" width="88" height="28" rx="6" fill="#0e639c" stroke="#1177bb"/>
+  <text x="642" y="93" fill="#ffffff" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600">Agent</text>
+  <rect x="722" y="74" width="56" height="28" rx="6" fill="#3c3c3c"/>
+  <text x="736" y="93" fill="#cccccc" font-family="Inter, system-ui, sans-serif" font-size="12">Ask</text>
+  <rect x="784" y="74" width="72" height="28" rx="6" fill="#3c3c3c"/>
+  <text x="796" y="93" fill="#cccccc" font-family="Inter, system-ui, sans-serif" font-size="12">Edit</text>
+  <rect x="628" y="118" width="276" height="56" rx="8" fill="#2d2d30" stroke="#3c3c3c"/>
+  <text x="642" y="142" fill="#cccccc" font-family="Inter, system-ui, sans-serif" font-size="12">List our TRACE decisions</text>
+  <text x="642" y="160" fill="#858585" font-family="Inter, system-ui, sans-serif" font-size="11">Tools enabled in Agent mode</text>
+  <rect x="628" y="190" width="276" height="120" rx="8" fill="#1e3a2f" stroke="#2dd4bf"/>
+  <text x="642" y="214" fill="#2dd4bf" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600">Used tool: trace_list</text>
+  <text x="642" y="236" fill="#d4d4d4" font-family="JetBrains Mono, monospace" font-size="10">0001 - accepted - TRACE ledger</text>
+  <text x="642" y="254" fill="#d4d4d4" font-family="Inter, system-ui, sans-serif" font-size="11">Found 1 decision. Reversibility: easy.</text>
+  <rect x="628" y="430" width="276" height="44" rx="8" fill="#3c3c3c" stroke="#007acc"/>
+  <text x="642" y="458" fill="#858585" font-family="Inter, system-ui, sans-serif" font-size="12">Ask Copilot or type / for commands</text>
+  <rect x="628" y="488" width="120" height="20" rx="4" fill="#0f766e"/>
+  <text x="638" y="502" fill="#ecfdf8" font-family="Inter, system-ui, sans-serif" font-size="10">adr-copilot connected</text>
+</svg>
