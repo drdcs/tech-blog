@@ -39,6 +39,15 @@
     }
   });
 
+  const revealFromHash = () => {
+    const id = location.hash.slice(1);
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (target?.classList.contains("reveal")) {
+      target.classList.add("is-visible");
+    }
+  };
+
   if ("IntersectionObserver" in window) {
     const io = new IntersectionObserver(
       (entries) => {
@@ -49,9 +58,11 @@
           }
         });
       },
-      { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }
+      { threshold: 0, rootMargin: "0px 0px -40px 0px" }
     );
     revealTargets.forEach((el) => io.observe(el));
+    revealFromHash();
+    window.addEventListener("hashchange", revealFromHash);
   } else {
     revealTargets.forEach((el) => el.classList.add("is-visible"));
   }

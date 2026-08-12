@@ -266,7 +266,7 @@ from typing import Literal
 AdrStatus = Literal["proposed", "accepted", "deprecated", "superseded"]
 Reversibility = Literal["easy", "moderate", "hard", "irreversible"]
 
-TRACE_SECTIONS: tuple[str, ...] = (
+TRACE_SECTIONS: tuple&lt;str, ...&gt; = (
     "Trigger",
     "Reversibility notes",
     "Alternatives considered",
@@ -282,13 +282,13 @@ class TraceFrontmatter:
     status: AdrStatus = "proposed"
     created: str = ""
     updated: str | None = None
-    authors: list[str] = field(default_factory=list)
+    authors: list&lt;str&gt; = field(default_factory=list)
     reversibility: Reversibility = "moderate"
     supersedes: str | None = None
     superseded_by: str | None = None
-    relates_to: list[str] = field(default_factory=list)
-    linked_paths: list[str] = field(default_factory=list)
-    tags: list[str] = field(default_factory=list)
+    relates_to: list&lt;str&gt; = field(default_factory=list)
+    linked_paths: list&lt;str&gt; = field(default_factory=list)
+    tags: list&lt;str&gt; = field(default_factory=list)
 
 
 @dataclass
@@ -297,7 +297,7 @@ class ParsedAdr:
     slug: str
     frontmatter: TraceFrontmatter
     body: str
-    sections: dict[str, str]
+    sections: dict&lt;str, str&gt;
 
 
 def slug_from_id_and_title(adr_id: str, title: str) -> str:
@@ -309,7 +309,7 @@ def slug_from_id_and_title(adr_id: str, title: str) -> str:
 
 
 def empty_trace_body(trigger: str) -> str:
-    parts: list[str] = []
+    parts: list&lt;str&gt; = []
     for heading in TRACE_SECTIONS:
         content = trigger if heading == "Trigger" else "_TBD_"
         parts.append(f"## {heading}\n\n{content}")
@@ -371,9 +371,29 @@ if __name__ == "__main__":
 
       <section id="step-5">
         <h2>Step 5 — Tools</h2>
-        <p>Add one tool at a time. Decorate functions with <code>@mcp.tool</code>. Add <code>import json</code> at the top of <code>server.py</code> if it is not there yet.</p>
+        <p>Add one tool at a time. Decorate functions with <code>@mcp.tool</code>. At the top of <code>server.py</code>, ensure these imports exist (Steps 3 and 8 add the store and helpers):</p>
+        <pre><code>import json
+from dataclasses import asdict
 
-        <h3>First tool: <code>trace_list</code></h3>
+from adr_store import AdrStore
+from graph import build_decision_graph
+from scoring import detect_drift, score_adr</code></pre>
+
+        <table>
+          <thead><tr><th>Tool</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>trace_list</code></td><td>List all decisions (optional status filter)</td></tr>
+            <tr><td><code>trace_get</code></td><td>Full record + completeness score by id</td></tr>
+            <tr><td><code>trace_draft</code></td><td>Create proposed ADR with section skeleton</td></tr>
+            <tr><td><code>trace_link_paths</code></td><td>Attach governed file paths to an ADR</td></tr>
+            <tr><td><code>trace_graph</code></td><td>Decision graph — supersedes and relates_to edges</td></tr>
+            <tr><td><code>trace_score</code></td><td>A–F rubric with explicit gaps</td></tr>
+            <tr><td><code>trace_drift_check</code></td><td>Git freshness vs linked_paths</td></tr>
+          </tbody>
+        </table>
+        <p>Return JSON strings from every tool — agents parse structured results reliably.</p>
+
+        <h3>1 · <code>trace_list</code></h3>
         <pre><code>@mcp.tool
 def trace_list(status: str | None = None) -> str:
     """List TRACE decisions with optional status filter (proposed, accepted, deprecated, superseded)."""
@@ -397,17 +417,40 @@ def trace_list(status: str | None = None) -> str:
           Confirm the agent calls <code>trace_list</code> and returns JSON.
         </p>
 
-        <h3>Next: <code>trace_draft</code></h3>
+        <h3>2 · <code>trace_get</code></h3>
+        <p>Fetch one decision by four-digit id — frontmatter, TRACE sections, and completeness score in one call.</p>
+        <pre><code>@mcp.tool
+def trace_get(adr_id: str) -> str:
+    """Fetch one decision by four-digit id with TRACE sections and completeness score."""
+    adr = store.get_by_id(adr_id)
+    if not adr:
+        return json.dumps({"error": f"ADR {adr_id} not found"})
+    score = score_adr(adr)
+    return json.dumps(
+        {
+            **asdict(adr.frontmatter),
+            "slug": adr.slug,
+            "sections": adr.sections,
+            "score": asdict(score),
+            "resource": f"adr://decisions/{adr.slug}",
+        },
+        indent=2,
+    )</code></pre>
+        <p>
+          <strong>Try it:</strong> Restart MCP. Ask: <em>Get ADR 0001 and tell me its completeness grade.</em>
+        </p>
+
+        <h3>3 · <code>trace_draft</code></h3>
         <p>Add this next, then test in Agent mode.</p>
         <pre><code>@mcp.tool
 def trace_draft(
     adr_id: str,
     title: str,
     trigger: str,
-    authors: list[str] | None = None,
+    authors: list&lt;str&gt; | None = None,
     reversibility: str = "moderate",
-    tags: list[str] | None = None,
-    linked_paths: list[str] | None = None,
+    tags: list&lt;str&gt; | None = None,
+    linked_paths: list&lt;str&gt; | None = None,
 ) -> str:
     """Create a proposed TRACE decision with section skeletons."""
     adr = store.draft(
@@ -437,7 +480,21 @@ Trigger: scheduler p99 &gt; 800ms under Postgres polling.</code></pre>
           Open <code>docs/decisions/</code> and confirm a new <code>proposed</code> markdown file appeared. The JSON response should include <code>created</code>, <code>path</code>, and <code>resource</code>.
         </p>
 
-        <h3>Then: <code>trace_graph</code></h3>
+        <h3>4 · <code>trace_link_paths</code></h3>
+        <p>After drafting, anchor the decision to the files it governs — required for drift detection.</p>
+        <pre><code>@mcp.tool
+def trace_link_paths(adr_id: str, paths: list&lt;str&gt;) -> str:
+    """Attach repository paths to a decision for drift detection."""
+    adr = store.link_paths(adr_id, paths)
+    return json.dumps(
+        {"id": adr.frontmatter.id, "linked_paths": adr.frontmatter.linked_paths},
+        indent=2,
+    )</code></pre>
+        <p>
+          <strong>Try it:</strong> Restart MCP. Ask: <em>Link <code>server.py</code> and <code>docs/decisions</code> to ADR 0002.</em>
+        </p>
+
+        <h3>5 · <code>trace_graph</code></h3>
         <p>
           Add <code>from graph import build_decision_graph</code> near the top of <code>server.py</code> (the starter kit already ships <code>graph.py</code>), then add this tool:
         </p>
@@ -451,17 +508,39 @@ def trace_graph() -> str:
           You should get JSON with <code>nodes</code> and <code>edges</code> (empty or sparse until you add <code>supersedes</code> / <code>relates_to</code> links in frontmatter).
         </p>
 
-        <p>Build the rest incrementally:</p>
-        <table>
-          <thead><tr><th>Tool</th><th>Purpose</th></tr></thead>
-          <tbody>
-            <tr><td><code>trace_get</code></td><td>Full record + completeness score</td></tr>
-            <tr><td><code>trace_link_paths</code></td><td>Attach governed file paths</td></tr>
-            <tr><td><code>trace_drift_check</code></td><td>Git freshness vs linked_paths</td></tr>
-            <tr><td><code>trace_score</code></td><td>A–F rubric with explicit gaps</td></tr>
-          </tbody>
-        </table>
-        <p>Return JSON strings — agents parse structured results reliably and you avoid FastMCP serialization edge cases on nested dataclasses.</p>
+        <h3>6 · <code>trace_score</code></h3>
+        <p>Grade a single ADR before review — returns A–F plus a <code>gaps</code> list of what to fix.</p>
+        <pre><code>@mcp.tool
+def trace_score(adr_id: str) -> str:
+    """Grade ADR completeness (A–F) and list gaps to fix before review."""
+    adr = store.get_by_id(adr_id)
+    if not adr:
+        return json.dumps({"error": f"ADR {adr_id} not found"})
+    return json.dumps(asdict(score_adr(adr)), indent=2)</code></pre>
+        <p>
+          <strong>Try it:</strong> Restart MCP. Ask: <em>Score ADR 0001 — what's missing?</em>
+        </p>
+
+        <h3>7 · <code>trace_drift_check</code></h3>
+        <p>Scan the whole ledger: flag ADRs whose <code>linked_paths</code> changed in git after the record was last updated.</p>
+        <pre><code>@mcp.tool
+def trace_drift_check() -> str:
+    """Find ADRs whose linked_paths changed in git after the record was last updated."""
+    findings = detect_drift(REPO_ROOT, store.list_all())
+    return json.dumps(
+        {
+            "checked_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            "finding_count": len(findings),
+            "findings": findings,
+        },
+        indent=2,
+    )</code></pre>
+        <p>
+          <strong>Try it:</strong> Restart MCP. Ask: <em>Run a drift check — any stale decisions?</em>
+          Irreversible ADRs with drift surface as <code>critical</code> findings.
+        </p>
+
+        <p>All seven tools are now in <code>server.py</code>. Next: expose decisions as MCP <strong>resources</strong> in Step 6.</p>
 
         <h3 id="trace-draft"><code>trace_draft</code> — start a new decision</h3>
         <p>
@@ -819,7 +898,6 @@ sequenceDiagram
 
       <nav class="article-nav" aria-label="Article navigation">
         <a class="article-nav-link" href="../">← AI topics</a>
-        <a class="article-nav-link" href="starter/">Download starter →</a>
       </nav>
     </article>
   </main>
