@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Build mcp-server-devlogs — Tech Blog by Dip</title>
+  <meta name="description" content="Build mcp-server-devlogs, a local MCP server that tails development logs and lets your AI client answer why the last local API call failed." />
+  <meta name="theme-color" content="#f5f7f6" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../../assets/css/styles.css" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      securityLevel: "loose",
+      flowchart: { curve: "basis", padding: 14, htmlLabels: true },
+      sequence: { actorMargin: 44, mirrorActors: false },
+      themeVariables: {
+        darkMode: false,
+        background: "#ffffff",
+        primaryColor: "#ecfdf8",
+        primaryTextColor: "#14201b",
+        primaryBorderColor: "#0f766e",
+        secondaryColor: "#eff6ff",
+        secondaryTextColor: "#14201b",
+        secondaryBorderColor: "#0369a1",
+        lineColor: "#000000",
+        textColor: "#2a3a33",
+        actorLineColor: "#000000",
+        signalColor: "#000000"
+      }
+    });
+
+    const run = async () => {
+      await mermaid.run({ nodes: document.querySelectorAll(".mermaid") });
+      document.querySelectorAll(".diagram-frame--light svg .edgePath path, .diagram-frame--light svg .flowchart-link, .diagram-frame--light svg .messageLine0, .diagram-frame--light svg .messageLine1").forEach((el) => {
+        el.style.stroke = "#000000";
+      });
+      document.querySelectorAll(".diagram-frame--light svg marker path").forEach((el) => {
+        el.setAttribute("fill", "#000000");
+      });
+    };
+
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
+    else run();
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="../../../" aria-label="Tech Blog by Dip home">
+        <span class="brand-mark">Tech Blog <span class="brand-emoji" aria-hidden="true">✦</span></span>
+        <span class="brand-tag">by Dip</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+      <ul class="nav-links">
+        <li><a href="../../../">Home</a></li>
+        <li><a href="../../../#topics">Topics</a></li>
+        <li><a href="../" aria-current="page">AI</a></li>
+        <li><a href="../../../about/">About</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <header class="article-hero">
+      <div class="prose-wrap">
+        <div class="article-hero-emoji" aria-hidden="true">🪵 🔌 ⚡</div>
+        <div class="article-meta">
+          <span class="pill">🤖 Tutorial</span>
+          <span>Local logs · MCP</span>
+          <span>⏱️ 22 min read</span>
+          <span>📅 Aug 2026</span>
+        </div>
+        <h1 class="article-title">Build mcp-server-devlogs</h1>
+        <p class="article-dek">
+          A local dev-log tailer for Cursor, Claude Desktop, VS Code, or any MCP host.
+          Ask <em>"why did my last local API call fail?"</em> and your LLM pulls the latest stack trace itself.
+        </p>
+        <p class="article-dek" style="margin-top:0.75rem;font-size:0.95rem;opacity:0.85;">
+          Companion reads: <a href="../mcp-vs-agents/">MCP vs Agents</a> · <a href="../build-adr-copilot-mcp/">ADR Copilot MCP</a>
+        </p>
+      </div>
+    </header>
+
+    <article class="article-body prose-wrap">
+      <nav class="toc" aria-label="Table of contents">
+        <h2>📑 On this page</h2>
+        <ol>
+          <li><a href="#core">The core concept</a></li>
+          <li><a href="#problem">The problem</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#implementation">Build the server</a></li>
+          <li><a href="#config">MCP configs</a></li>
+          <li><a href="#concepts">MCP concepts covered</a></li>
+          <li><a href="#hardening">Hardening</a></li>
+          <li><a href="#credits">Credits</a></li>
+        </ol>
+      </nav>
+
+      <section id="core">
+        <h2>🪵 The core concept</h2>
+        <p>
+          <strong>mcp-server-devlogs</strong> is a lightweight MCP server that watches your local application logs:
+          <code>logs/dev.log</code>, <code>tmp/server.log</code>, Docker output captured to a file, or any stream your app writes during development.
+        </p>
+        <p>
+          It exposes recent errors directly to your LLM client through MCP <strong>tools</strong>, <strong>resources</strong>, and <strong>prompts</strong>.
+          The model no longer waits for you to copy a stack trace from a terminal. It can inspect the last crash, summarize the likely cause, and suggest the next file to open.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Snapshot A — The local debugging loop after MCP</p>
+          <div class="diagram-frame diagram-frame--snapshot">
+            <img class="vscode-snapshot" src="./assets/devlogs-chat-diagnosis.svg" width="920" height="520" alt="AI chat asking why a local API call failed and calling devlogs tools to inspect the stack trace" loading="eager" />
+          </div>
+        </div>
+      </section>
+
+      <section id="problem">
+        <h2>🔥 The problem it solves</h2>
+        <p>
+          Local development has a tiny, repeated tax: request fails, terminal screams, developer drags over 80 lines, copies the wrong half of the stack trace, pastes into Cursor or Claude Desktop, then explains what route they just hit.
+        </p>
+        <p>
+          You do that dozens of times a day. It is not dramatic. It is just friction, and friction wins by being boring.
+        </p>
+
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--nfr">Before</span>
+            <h3>Manual stack-trace ferrying</h3>
+            <ul>
+              <li>Switch terminal → editor → chat → terminal</li>
+              <li>Paste stale logs from the wrong request</li>
+              <li>Lose timestamp, route, request id, and nearby context</li>
+              <li>Ask the model to reason from a messy clipboard blob</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label">After</span>
+            <h3>Ask the client</h3>
+            <ul>
+              <li><em>"Why did my last local API call fail?"</em></li>
+              <li>The model calls <code>devlogs_last_error</code></li>
+              <li>It reads <code>devlogs://recent</code> for surrounding lines</li>
+              <li>You get a diagnosis tied to the freshest evidence</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <h2>🧭 Architecture</h2>
+        <p>
+          This is the same shape as bigger log-analysis MCP systems, just pulled down to localhost.
+          AWS Labs' Log Analyzer with MCP wraps CloudWatch Logs for discovery, search, analysis, and correlation.
+          Our devlogs server wraps a local append-only file and optimizes for one question: <strong>what just broke?</strong>
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 01 — Local log tailer MCP flow</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+flowchart LR
+  App["Local app<br/>npm run dev · uvicorn · rails s"] --> Log["logs/dev.log"]
+  User["Developer"] --> Host["MCP host<br/>Cursor · Claude · VS Code"]
+  Host --> Client["MCP client"]
+  Client --> Server["mcp-server-devlogs<br/>FastMCP over stdio"]
+  Server --> Ring["tail buffer<br/>last N lines"]
+  Server --> Tools["Tools<br/>last_error · grep · around"]
+  Server --> Resources["Resources<br/>devlogs://recent"]
+  Server --> Prompts["Prompts<br/>debug_last_failure"]
+  Ring --> Log
+  Tools --> Ring
+  Resources --> Ring
+            </pre>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Snapshot B — Config + server running locally</p>
+          <div class="diagram-frame diagram-frame--snapshot">
+            <img class="vscode-snapshot" src="./assets/devlogs-mcp-config.svg" width="920" height="520" alt="Editor screenshot showing mcp-server-devlogs configuration and a running local FastMCP process" loading="lazy" />
+          </div>
+        </div>
+      </section>
+
+      <section id="implementation">
+        <h2>⚡ Build the server</h2>
+        <p>
+          Create a tiny project:
+        </p>
+        <pre><code>mkdir mcp-server-devlogs
+cd mcp-server-devlogs
+python3 -m venv .venv
+source .venv/bin/activate
+pip install fastmcp</code></pre>
+
+        <p>Create <code>server.py</code>:</p>
+        <pre><code>from collections import deque
+from dataclasses import dataclass
+from pathlib import Path
+import os
+import re
+from typing import Iterable
+
+from fastmcp import FastMCP
+
+LOG_PATH = Path(os.getenv("DEVLOG_PATH", "logs/dev.log")).expanduser()
+WINDOW = int(os.getenv("DEVLOG_WINDOW", "300"))
+ERROR_RE = re.compile(r"(error|exception|traceback|failed|panic|fatal)", re.I)
+
+mcp = FastMCP("mcp-server-devlogs")
+
+
+@dataclass
+class LogLine:
+    no: int
+    text: str
+
+
+def tail(path: Path = LOG_PATH, limit: int = WINDOW) -> list[LogLine]:
+    if not path.exists():
+        return []
+
+    buf: deque[str] = deque(maxlen=limit)
+    total = 0
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        for total, line in enumerate(f, start=1):
+            buf.append(line.rstrip("\n"))
+
+    start = max(1, total - len(buf) + 1)
+    return [LogLine(start + i, text) for i, text in enumerate(buf)]
+
+
+def render(lines: Iterable[LogLine]) -> str:
+    return "\n".join(f"{line.no:>6} | {line.text}" for line in lines)
+
+
+@mcp.tool
+def devlogs_recent(lines: int = 120) -> str:
+    """Return the latest local development log lines."""
+    return render(tail(limit=min(lines, 600))) or "No log lines found."
+
+
+@mcp.tool
+def devlogs_last_error(context: int = 35) -> str:
+    """Return the latest error-like log line with surrounding context."""
+    lines = tail(limit=WINDOW)
+    hits = [i for i, line in enumerate(lines) if ERROR_RE.search(line.text)]
+    if not hits:
+        return "No recent error-like lines found."
+
+    i = hits[-1]
+    start = max(0, i - context)
+    end = min(len(lines), i + context + 1)
+    return render(lines[start:end])
+
+
+@mcp.tool
+def devlogs_grep(pattern: str, lines: int = 200) -> str:
+    """Search recent local logs using a case-insensitive regex pattern."""
+    regex = re.compile(pattern, re.I)
+    matches = [line for line in tail(limit=min(lines, 1000)) if regex.search(line.text)]
+    return render(matches[-80:]) or f"No matches for {pattern!r}."
+
+
+@mcp.resource("devlogs://recent")
+def recent_resource() -> str:
+    """Readable resource containing the latest local development logs."""
+    return devlogs_recent(160)
+
+
+@mcp.prompt
+def debug_last_failure() -> str:
+    """Prompt template for diagnosing the freshest local failure."""
+    return (
+        "Use devlogs_last_error first. Then explain the likely root cause, "
+        "the file or route to inspect, and the smallest next experiment."
+    )
+
+
+if __name__ == "__main__":
+    mcp.run()</code></pre>
+
+        <div class="callout">
+          <strong>Why a file, not direct terminal capture?</strong> MCP stdio is already used for protocol messages. Keep app logs out of the MCP process stdout. Have your app write to <code>logs/dev.log</code>, or pipe it there with <code>npm run dev 2&gt;&amp;1 | tee logs/dev.log</code>.
+        </div>
+
+        <h3>What the tools mean</h3>
+        <table>
+          <thead><tr><th>Capability</th><th>MCP type</th><th>Why it exists</th></tr></thead>
+          <tbody>
+            <tr><td><code>devlogs_recent</code></td><td>Tool</td><td>Pull the newest lines when the model needs broad context.</td></tr>
+            <tr><td><code>devlogs_last_error</code></td><td>Tool</td><td>Jump straight to the freshest failure with surrounding lines.</td></tr>
+            <tr><td><code>devlogs_grep</code></td><td>Tool</td><td>Search for route, request id, status code, exception class, or user id.</td></tr>
+            <tr><td><code>devlogs://recent</code></td><td>Resource</td><td>Expose recent logs as readable context without inventing a function call.</td></tr>
+            <tr><td><code>debug_last_failure</code></td><td>Prompt</td><td>Give the model a reusable debugging workflow.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="config">
+        <h2>🧷 MCP configs</h2>
+        <p>
+          MCP config shapes vary slightly by host. The important parts are the same: run the venv Python, point it at <code>server.py</code>, and pass <code>DEVLOG_PATH</code>.
+        </p>
+
+        <h3>Claude Desktop</h3>
+        <p>
+          On macOS this usually lives in <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>.
+        </p>
+        <pre><code>{
+  "mcpServers": {
+    "devlogs": {
+      "command": "/absolute/path/mcp-server-devlogs/.venv/bin/python",
+      "args": ["/absolute/path/mcp-server-devlogs/server.py"],
+      "env": {
+        "DEVLOG_PATH": "/absolute/path/your-app/logs/dev.log",
+        "DEVLOG_WINDOW": "300"
+      }
+    }
+  }
+}</code></pre>
+
+        <h3>Cursor / VS Code style workspace config</h3>
+        <p>
+          Use a workspace-level MCP file such as <code>.cursor/mcp.json</code> or <code>.vscode/mcp.json</code>, depending on your host.
+        </p>
+        <pre><code>{
+  "servers": {
+    "devlogs": {
+      "command": "/absolute/path/mcp-server-devlogs/.venv/bin/python",
+      "args": ["/absolute/path/mcp-server-devlogs/server.py"],
+      "env": {
+        "DEVLOG_PATH": "${workspaceFolder}/logs/dev.log"
+      }
+    }
+  }
+}</code></pre>
+
+        <h3>Amazon Q CLI style config</h3>
+        <p>
+          AWS Labs' Log Analyzer docs show Amazon Q reading MCP servers from <code>~/.aws/amazonq/mcp.json</code>. A local devlogs variant can use the same idea:
+        </p>
+        <pre><code>{
+  "mcpServers": {
+    "devlogs": {
+      "command": "/absolute/path/mcp-server-devlogs/.venv/bin/python",
+      "args": ["/absolute/path/mcp-server-devlogs/server.py"],
+      "env": {
+        "DEVLOG_PATH": "/absolute/path/your-app/logs/dev.log"
+      }
+    }
+  }
+}</code></pre>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Snapshot C — Tools exposed to the AI host</p>
+          <div class="diagram-frame diagram-frame--snapshot">
+            <img class="vscode-snapshot" src="./assets/devlogs-tools.svg" width="920" height="520" alt="MCP tools list showing devlogs_recent, devlogs_last_error, devlogs_grep, recent resource, and debug prompt" loading="lazy" />
+          </div>
+        </div>
+      </section>
+
+      <section id="concepts">
+        <h2>🧠 MCP concepts covered</h2>
+        <div class="hld-panel-grid hld-panel-grid--2">
+          <div class="hld-panel">
+            <span class="hld-panel-label">Protocol pieces</span>
+            <h3>What this project teaches</h3>
+            <ul>
+              <li><strong>Host</strong> — Cursor, Claude Desktop, VS Code, Amazon Q, or another MCP-aware app.</li>
+              <li><strong>Client</strong> — the connector inside the host that speaks JSON-RPC to your server.</li>
+              <li><strong>Server</strong> — the local Python process wrapping your log file.</li>
+              <li><strong>Transport</strong> — stdio for local development; Streamable HTTP when you go remote.</li>
+            </ul>
+          </div>
+          <div class="hld-panel">
+            <span class="hld-panel-label hld-panel-label--api">Capability design</span>
+            <h3>How the model gets useful context</h3>
+            <ul>
+              <li><strong>Tools</strong> perform bounded actions: recent, last error, grep.</li>
+              <li><strong>Resources</strong> expose stable readable URIs like <code>devlogs://recent</code>.</li>
+              <li><strong>Prompts</strong> package repeatable workflows for debugging.</li>
+              <li><strong>Elicitation</strong> can ask the user for a missing route, request id, or time window when supported.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 02 — One debugging question, one MCP loop</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as Developer
+  participant H as AI Host
+  participant C as MCP Client
+  participant S as devlogs server
+  participant L as logs/dev.log
+
+  U->>H: Why did my last API call fail?
+  H->>C: tools/call devlogs_last_error
+  C->>S: JSON-RPC over stdio
+  S->>L: read tail window
+  L-->>S: latest stack trace
+  S-->>C: compact context
+  C-->>H: tool result
+  H-->>U: cause, file, next experiment
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="hardening">
+        <h2>🛡️ Hardening</h2>
+        <ul>
+          <li><strong>Default read-only</strong> — log tools should never mutate your app or shell out.</li>
+          <li><strong>Limit output</strong> — cap lines, bytes, and regex matches so one giant traceback does not flood context.</li>
+          <li><strong>Redact secrets</strong> — scrub tokens, cookies, passwords, Authorization headers, and connection strings.</li>
+          <li><strong>Pin paths</strong> — allow explicit log files only; do not accept arbitrary filesystem reads from tool input.</li>
+          <li><strong>Track rotation</strong> — handle truncated files, renamed logs, and Docker restart churn.</li>
+          <li><strong>Return evidence</strong> — include line numbers and timestamps so the model can cite what it used.</li>
+        </ul>
+
+        <div class="callout">
+          <strong>Production twist:</strong> once this works locally, the same shape grows into CloudWatch, Loki, Datadog, OpenSearch, or S3 log archives. Local file first, fleet telemetry later.
+        </div>
+      </section>
+
+      <section id="credits">
+        <h2>🙏 Credits</h2>
+        <p>
+          Inspiration and credit to <a href="https://github.com/awslabs/Log-Analyzer-with-MCP" rel="noopener noreferrer">awslabs/Log-Analyzer-with-MCP</a>,
+          a Python MCP server for AWS CloudWatch Logs that exposes log discovery, search, summary, and correlation features to AI assistants.
+          Their docs also show practical MCP client configuration patterns for Claude Desktop and Amazon Q CLI.
+        </p>
+        <p style="font-size:0.95rem;color:var(--mist);">
+          Spec notes: <a href="https://modelcontextprotocol.io/specification/2025-06-18/index" rel="noopener noreferrer">MCP specification overview</a> ·
+          <a href="https://blog.modelcontextprotocol.io/posts/2026-07-28/" rel="noopener noreferrer">July 28, 2026 specification update</a>
+        </p>
+      </section>
+
+      <nav class="article-nav" aria-label="Article navigation">
+        <a class="article-nav-link" href="../">← AI topics</a>
+      </nav>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <div class="footer-brand">Tech Blog by Dip</div>
+        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span></p>
+      </div>
+    </div>
+  </footer>
+  <script src="../../../assets/js/main.js"></script>
+</body>
+</html>
