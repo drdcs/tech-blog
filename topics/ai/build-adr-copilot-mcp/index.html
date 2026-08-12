@@ -329,7 +329,7 @@ def empty_trace_body(trigger: str) -> str:
     def __init__(self, root_dir: Path):
         self.root_dir = root_dir
 
-    def list_all(self) -> list[ParsedAdr]:
+    def list_all(self) -> list&lt;ParsedAdr&gt;:
         ...
 
     def draft(self, adr_id: str, title: str, trigger: str) -> ParsedAdr:

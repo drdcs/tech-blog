@@ -43,9 +43,11 @@
     const id = location.hash.slice(1);
     if (!id) return;
     const target = document.getElementById(id);
-    if (target?.classList.contains("reveal")) {
+    if (!target) return;
+    if (target.classList.contains("reveal")) {
       target.classList.add("is-visible");
     }
+    target.querySelectorAll(".reveal").forEach((el) => el.classList.add("is-visible"));
   };
 
   if ("IntersectionObserver" in window) {
