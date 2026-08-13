@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>All About Vectorless RAG — Tech Blog by Dip</title>
+  <meta name="description" content="Do we really need a vector database for RAG? A deep dive into vectorless retrieval — lexical search, hierarchical trees, agentic navigation, cost, and when to use each." />
+  <meta name="theme-color" content="#f5f7f6" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../../assets/css/styles.css" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      securityLevel: "loose",
+      flowchart: {
+        curve: "basis",
+        padding: 16,
+        htmlLabels: true,
+        nodeSpacing: 40,
+        rankSpacing: 50
+      },
+      sequence: {
+        actorMargin: 48,
+        mirrorActors: false,
+        bottomMarginAdjust: 8,
+        messageMargin: 40
+      },
+      themeVariables: {
+        darkMode: false,
+        background: "#ffffff",
+        primaryColor: "#ecfdf8",
+        primaryTextColor: "#14201b",
+        primaryBorderColor: "#0f766e",
+        secondaryColor: "#eff6ff",
+        secondaryTextColor: "#14201b",
+        secondaryBorderColor: "#0369a1",
+        tertiaryColor: "#f8fafc",
+        tertiaryTextColor: "#334155",
+        tertiaryBorderColor: "#64748b",
+        lineColor: "#000000",
+        textColor: "#2a3a33",
+        mainBkg: "#ecfdf8",
+        nodeBorder: "#0f766e",
+        clusterBkg: "#f8fafc",
+        clusterBorder: "#cbd5e1",
+        titleColor: "#14201b",
+        actorBkg: "#ecfdf8",
+        actorBorder: "#0f766e",
+        actorTextColor: "#14201b",
+        actorLineColor: "#000000",
+        signalColor: "#000000",
+        signalTextColor: "#14201b",
+        labelBoxBkgColor: "#ffffff",
+        labelBoxBorderColor: "#0f766e",
+        labelTextColor: "#14201b",
+        loopTextColor: "#0369a1",
+        noteBkgColor: "#eff6ff",
+        noteTextColor: "#14201b",
+        noteBorderColor: "#0369a1",
+        activationBkgColor: "rgba(15,118,110,0.12)",
+        activationBorderColor: "#0f766e",
+        sequenceNumberColor: "#14201b"
+      }
+    });
+
+    const run = async () => {
+      const nodes = document.querySelectorAll(".mermaid");
+      await mermaid.run({ nodes });
+
+      document.querySelectorAll(".diagram-frame--light svg .edgePath path, .diagram-frame--light svg .flowchart-link").forEach((path) => {
+        path.style.stroke = "#000000";
+        path.style.strokeDasharray = "none";
+        path.style.animation = "none";
+      });
+      document.querySelectorAll(".diagram-frame--light svg marker path").forEach((path) => {
+        path.setAttribute("fill", "#000000");
+        path.setAttribute("stroke", "#000000");
+      });
+      document.querySelectorAll(".diagram-frame--light svg line, .diagram-frame--light svg .messageLine0, .diagram-frame--light svg .messageLine1").forEach((el) => {
+        el.setAttribute("stroke", "#000000");
+      });
+      document.querySelectorAll(".diagram-frame--light svg .messageText, .diagram-frame--light svg .loopText, .diagram-frame--light svg .labelText, .diagram-frame--light svg .noteText, .diagram-frame--light svg .actor text, .diagram-frame--light svg .sequenceNumber").forEach((el) => {
+        el.setAttribute("fill", "#14201b");
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run);
+    } else {
+      run();
+    }
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="../../../" aria-label="Tech Blog by Dip home">
+        <span class="brand-mark">Tech Blog <span class="brand-emoji" aria-hidden="true">✦</span></span>
+        <span class="brand-tag">by Dip</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+      <ul class="nav-links">
+        <li><a href="../../../">Home</a></li>
+        <li><a href="../../../#topics">Topics</a></li>
+        <li><a href="../../../topics/ai/" aria-current="page">AI</a></li>
+        <li><a href="../../../topics/data/">Data</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <header class="article-hero">
+      <div class="prose-wrap">
+        <div class="article-hero-emoji" aria-hidden="true">🔍 🌲 🧭</div>
+        <div class="article-meta">
+          <span class="pill">🧠 AI Systems</span>
+          <span>📚 Retrieval</span>
+          <span>⏱️ 22 min read</span>
+          <span>📅 Aug 2026</span>
+        </div>
+        <h1 class="article-title">All About Vectorless RAG</h1>
+        <p class="article-dek">
+          Do we really need a vector database for Retrieval-Augmented Generation? A field guide to lexical search, hierarchical
+          document trees, agentic navigation, the real cost picture, and how to pick the retriever that matches the shape of your information.
+        </p>
+      </div>
+    </header>
+
+    <article class="article-body prose-wrap">
+      <nav class="toc" aria-label="Table of contents">
+        <h2>📑 On this page</h2>
+        <ol>
+          <li><a href="#what-is">🔍 What is Vectorless RAG?</a></li>
+          <li><a href="#two-types">🌗 Two types of Vectorless RAG</a></li>
+          <li><a href="#why-important">💡 Why it matters</a></li>
+          <li><a href="#where-works">✅ Where it works well</a></li>
+          <li><a href="#where-vector-wins">🧲 Where vector RAG still wins</a></li>
+          <li><a href="#cost">💰 Compute &amp; storage cost</a></li>
+          <li><a href="#efficiency">⚡ Efficiency: which is faster?</a></li>
+          <li><a href="#storage">🗄️ Where should documents live?</a></li>
+          <li><a href="#minimal">🛠️ A minimal implementation</a></li>
+          <li><a href="#agentic">🤖 Making it more powerful</a></li>
+          <li><a href="#pageindex">🌲 PageIndex: tree-based retrieval</a></li>
+          <li><a href="#comparison">⚖️ Traditional vs Vectorless</a></li>
+          <li><a href="#lesson">🎯 The architectural lesson</a></li>
+        </ol>
+      </nav>
+
+      <section id="intro">
+        <p>
+          For the last few years, building a Retrieval-Augmented Generation application has usually meant following the same architecture:
+        </p>
+        <div class="callout">
+          <strong>Documents → chunks → embeddings → vector database → similarity search → LLM</strong>
+        </div>
+        <p>
+          That pattern works extremely well, and dense retrieval was part of the original influential RAG work: the 2020 RAG paper
+          used a dense vector index as non-parametric memory for retrieval. But an interesting question is becoming increasingly important:
+          <em>does every RAG system actually need embeddings and a vector database?</em>
+        </p>
+        <p>
+          The answer is <strong>no</strong>. A growing class of systems — often called <strong>Vectorless RAG</strong> — retrieves information using
+          full-text search, document structure, metadata, SQL, hierarchical indexes, regular expressions, search tools, or LLM-guided navigation
+          instead of dense-vector similarity.
+        </p>
+        <p>
+          Recent research makes this more than an architectural thought experiment. An AWS study found that an agent equipped only with
+          keyword-oriented document-search tools could achieve more than 90% of the measured performance of its traditional vector-RAG baseline
+          without maintaining a standing vector database. Projects such as <strong>PageIndex</strong> take a different vectorless approach:
+          convert long documents into hierarchical, table-of-contents-like trees and let an LLM agent reason through that structure to locate relevant pages.
+        </p>
+        <p>
+          Vectorless RAG therefore deserves serious consideration — but it is not automatically better than vector RAG. The interesting question is not
+          <em>“Should we stop using vectors?”</em> It is: <strong>“What retrieval mechanism best matches the information we are trying to retrieve?”</strong>
+        </p>
+      </section>
+
+      <section id="what-is">
+        <h2>🔍 1. What is Vectorless RAG?</h2>
+        <p>
+          Vectorless RAG is Retrieval-Augmented Generation where the retrieval layer does not require dense embeddings and nearest-neighbor
+          vector search. Traditional vector RAG generally chunks a document, embeds every chunk, stores those vectors in a database, embeds the
+          query, and runs a similarity search. A vectorless system instead preserves text and structure, builds a lexical or structural index,
+          and searches, reasons, or navigates to the exact sections it needs.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 01 — Vector RAG vs Vectorless RAG pipelines</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+flowchart TB
+  subgraph Vec["Vector RAG"]
+    D1["Document"] --> C1["Chunk"]
+    C1 --> E1["Generate embeddings"]
+    E1 --> V1["Vector database"]
+    Q1["User query"] --> QE["Embed query"]
+    QE --> S1["Vector similarity search"]
+    V1 --> S1
+    S1 --> T1["Top-k chunks"]
+    T1 --> L1["LLM answer"]
+  end
+
+  subgraph Vless["Vectorless RAG"]
+    D2["Document"] --> P2["Preserve text + structure"]
+    P2 --> I2["Lexical / structural index"]
+    Q2["User question"] --> R2["Search · reason · navigate"]
+    I2 --> R2
+    R2 --> T2["Exact sections"]
+    T2 --> L2["LLM answer"]
+  end
+
+  style E1 fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style V1 fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style I2 fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style R2 fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style L1 fill:#f8fafc,stroke:#64748b,color:#334155
+  style L2 fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+
+        <p>
+          The retrieval mechanism could be BM25, SQLite FTS, PostgreSQL full-text search, OpenSearch, SQL queries, metadata filters, regex,
+          a hierarchical tree, or an agent repeatedly using several of those tools. For example, OpenSearch uses BM25 as its default text-relevance
+          algorithm, while PostgreSQL provides dedicated <code>tsvector</code> and <code>tsquery</code> types for full-text retrieval, and SQLite
+          ships the FTS5 extension for efficient full-text searching over document collections.
+        </p>
+        <div class="callout">
+          <strong>Key insight.</strong> Vectorless does <em>not</em> mean indexless. It usually means replacing a dense-vector index with a
+          lexical, structural, relational, or agent-navigable index.
+        </div>
+      </section>
+
+      <section id="two-types">
+        <h2>🌗 2. Two important types of Vectorless RAG</h2>
+        <p>There are currently two particularly interesting patterns.</p>
+
+        <h3>Search-based Vectorless RAG</h3>
+        <p>
+          The first uses conventional information-retrieval technology such as BM25, full-text indexes, SQL, regex, metadata filters, and search
+          commands. The LLM can run a search once, or it can behave like an agent — the same way a human researcher works: form a query, inspect
+          results, refine, then open the relevant section.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 02 — Agentic keyword-search loop</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+flowchart LR
+  Q["Question"] --> I["Understand intent"]
+  I --> G["Generate search terms"]
+  G --> S["Search documents"]
+  S --> R["Inspect results"]
+  R --> C{"Enough<br/>evidence?"}
+  C -->|"No"| G
+  C -->|"Yes"| O["Open relevant section"]
+  O --> A["Answer"]
+
+  style G fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style S fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style C fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style A fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+
+        <p>
+          The AWS paper <em>Keyword Search Is All You Need</em> implemented an agent that could inspect PDF metadata and repeatedly use tools such
+          as <code>ripgrep-all</code> and <code>pdfgrep</code>. Across its evaluated datasets, the keyword agent maintained competitive performance
+          with vector RAG, with average relative attainment above 88% across all three reported metrics. On the FinanceBench subset used in the
+          experiment, the agent averaged 30.40% answer correctness versus 24.24% for the study's traditional RAG configuration.
+        </p>
+        <p>
+          Those numbers are not proof that keyword search universally beats vectors. They show something more useful:
+          <strong>iterative search plus LLM reasoning can compensate for the absence of embedding retrieval in some document-QA workloads.</strong>
+        </p>
+
+        <h3>Tree-based / reasoning-based Vectorless RAG</h3>
+        <p>
+          The second approach preserves document hierarchy. PageIndex is a prominent open-source example. Instead of splitting a 300-page report
+          into arbitrary 500-token chunks, it generates a hierarchical tree containing section names, page ranges, summaries, and child sections.
+          At query time, an agent looks through that tree and requests only the relevant pages.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 03 — Reasoning over a document tree</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+flowchart TB
+  AR["Annual Report"]
+  AR --> BO["Business Overview"]
+  AR --> RF["Risk Factors"]
+  AR --> FS["Financial Statements"]
+  AR --> NO["Notes"]
+
+  RF --> MR["Market Risk"]
+  RF --> LR["Liquidity Risk"]
+  RF --> RR["Regulatory Risk"]
+
+  FS --> REV["Revenue"]
+  FS --> EXP["Expenses"]
+  FS --> CF["Cash Flow"]
+
+  NO --> WC["Working Capital"]
+
+  Qn["Q: Why did operating cash flow<br/>fall despite revenue growth?"] -.->|"reason"| CF
+  Qn -.->|"reason"| REV
+  Qn -.->|"reason"| WC
+
+  style AR fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style CF fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style REV fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style WC fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Qn fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+
+        <p>
+          Where vector similarity searches for chunks that are <em>linguistically</em> similar to the question, a tree-based agent reasons about
+          <em>which sections a human would open</em> — Cash Flow, Revenue, and the Working Capital note — then retrieves and compares them.
+          PageIndex describes this as a two-stage process: generate a table-of-contents-like tree, then perform reasoning-driven retrieval through
+          tree search. The team reports its Mafin 2.5 system achieved 98.7% accuracy on the full FinanceBench dataset — a project-reported result
+          rather than evidence that all tree-based systems will match it, but a striking demonstration on highly structured financial documents.
+        </p>
+      </section>
+
+      <section id="why-important">
+        <h2>💡 3. Why is Vectorless RAG important?</h2>
+        <p>
+          The biggest issue with embedding retrieval is that <strong>semantic similarity is not always the same thing as task relevance.</strong>
+          Imagine a technical manual containing an entry like <code>Error E105: Motor temperature exceeded 95°C.</code> If a user asks
+          <em>“What causes E105?”</em>, an exact lexical search for <code>E105</code> is almost perfect. There is little benefit in computing
+          semantic similarity across hundreds of thousands of embeddings.
+        </p>
+        <p>The same is true for many enterprise identifiers:</p>
+        <ul>
+          <li><code>SKU-48291</code>, <code>INC-293842</code>, <code>RFC-1053</code>, <code>ErrorCode=PX104</code></li>
+          <li>API method names, table names, part numbers</li>
+          <li>Policy IDs and contract clause numbers</li>
+        </ul>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Dense vectors shine when…</h3>
+            <ul>
+              <li>Users express the same idea in completely different language</li>
+              <li>Paraphrase and synonym matching matters</li>
+              <li>The corpus is loosely structured</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Keyword / structure shines when…</h3>
+            <ul>
+              <li>The exact symbol, number, or entity matters</li>
+              <li>A heading, relationship, or location matters</li>
+              <li>Precision beats fuzzy recall</li>
+            </ul>
+          </div>
+        </div>
+        <p>That distinction is fundamental — and it is exactly what a single embedding index tends to blur.</p>
+      </section>
+
+      <section id="where-works">
+        <h2>✅ 4. Where Vectorless RAG works especially well</h2>
+        <p>
+          Vectorless RAG becomes particularly attractive for long, structured documents: financial reports, legal contracts, regulations, policies,
+          technical manuals, academic material, specifications, runbooks, and operational documentation. PageIndex specifically targets these
+          professional documents because their section hierarchy carries retrieval information that ordinary fixed-size chunking can discard.
+        </p>
+        <p>
+          It is also compelling for code search, logs, incident reports, support tickets, exact product identifiers, configuration repositories,
+          SQL/database-backed knowledge, frequently changing data, and environments where an organization already operates a mature enterprise-search
+          platform.
+        </p>
+        <div class="callout">
+          <strong>Frequently updated knowledge</strong> is a standout case. The AWS researchers highlighted it because keyword-oriented agentic search
+          does not require re-maintaining a standing dense-vector database every time knowledge changes.
+        </div>
+      </section>
+
+      <section id="where-vector-wins">
+        <h2>🧲 5. Where traditional vector RAG is still better</h2>
+        <p>
+          Vectorless RAG is not a universal replacement. Consider a document that says
+          <em>“Employees may work away from their assigned office for a maximum of three days each week,”</em> and a user who asks
+          <em>“What is the remote-working policy?”</em> The document never uses the phrase <em>remote working</em>. Semantic embeddings easily connect
+          <code>remote working</code> with <code>work away from assigned office</code>. A basic keyword search may not.
+        </p>
+        <p>
+          OpenSearch's own documentation makes the same distinction: BM25 works well for keyword-oriented retrieval but does not capture semantic
+          meaning the way embedding-based approaches do. That makes vector retrieval especially useful for fuzzy discovery, heterogeneous knowledge
+          bases, questions full of synonyms or paraphrases, multilingual semantic retrieval, recommendations, broad exploratory search, and corpora
+          where document structure is weak.
+        </p>
+        <p>
+          So the production decision is usually more nuanced than <em>vector versus vectorless</em>. Often the strongest architecture fuses several
+          retrievers:
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 04 — Hybrid retrieval with candidate fusion</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+flowchart TB
+  Q["User question"]
+  Q --> EX["Exact / lexical search"]
+  Q --> MF["Metadata filtering"]
+  Q --> VR["Vector retrieval"]
+  Q --> AN["Agentic navigation"]
+  EX --> FU["Candidate fusion / reranking"]
+  MF --> FU
+  VR --> FU
+  AN --> FU
+  FU --> L["LLM"]
+
+  style EX fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style MF fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style VR fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style AN fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style FU fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+        <p>In other words, Vectorless RAG is another retrieval strategy — not a reason to throw away embeddings.</p>
+      </section>
+
+      <section id="cost">
+        <h2>💰 6. Compute and storage cost</h2>
+        <p>
+          This is where the comparison becomes especially interesting. Consider an illustrative knowledge base of <strong>1,000,000 passages</strong>,
+          averaging <strong>500 tokens</strong> each — <strong>500,000,000 tokens</strong> total.
+        </p>
+        <p>
+          Assume a vector architecture embeds those 500M tokens with <code>text-embedding-3-small</code>, listed at
+          <strong>$0.02 per million input tokens</strong>:
+        </p>
+        <pre><code>500M / 1M × $0.02  =  $10</code></pre>
+        <p>
+          That is surprisingly small — which reveals an important point: <strong>embedding API cost itself may not be the major cost of modern vector
+          RAG.</strong> Storage, index memory, replication, infrastructure, re-indexing, operations, retrieval compute, reranking, and generation may
+          matter much more.
+        </p>
+        <p>Suppose those one million passages use a 1,536-dimensional float32 embedding:</p>
+        <pre><code>1,000,000 × 1,536 dims × 4 bytes  =  6.144 GB</code></pre>
+        <p>
+          That is roughly <strong>6.1 GB of raw vector values alone</strong>, before ANN index structures, document text, metadata, replicas, backups,
+          or database overhead. At 3,072 dimensions it doubles:
+        </p>
+        <pre><code>1,000,000 × 3,072 × 4  =  12.288 GB</code></pre>
+        <p>
+          OpenAI notes that larger embedding representations consume more compute, memory, and storage; its large embedding model supports up to
+          3,072 dimensions. Query-embedding cost, by contrast, is almost irrelevant — one million 20-token queries costs
+          <code>20M × $0.02 / 1M = $0.40</code>.
+        </p>
+
+        <h3>But Vectorless RAG is not automatically cheaper</h3>
+        <p>
+          A simple BM25 or PostgreSQL full-text system can be extremely economical because no LLM is needed for retrieval. But
+          <strong>agentic Vectorless RAG can move compute cost from ingestion to query time.</strong> Assume a vectorless agent performs one
+          retrieval-planning LLM call per query with 400 input and 80 output tokens, using GPT-5 mini ($0.25/M input, $2.00/M output):
+        </p>
+        <pre><code>Input:   400 / 1M × $0.25  = $0.00010
+Output:   80 / 1M × $2.00  = $0.00016
+Plan:                      ≈ $0.00026 / query
+
+1,000,000 queries          ≈ $260</code></pre>
+        <p>And an agent that performs several reasoning/search iterations could cost more. The full picture:</p>
+
+        <div class="api-table-wrap">
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>Cost component</th>
+                <th>Vector RAG</th>
+                <th>Lexical Vectorless</th>
+                <th>Agentic / Tree Vectorless</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Document embeddings</td><td>Required</td><td>None</td><td>None</td></tr>
+              <tr><td>Dense-vector storage</td><td>Required</td><td>None</td><td>None</td></tr>
+              <tr><td>Full-text / tree index</td><td>Optional</td><td>Required</td><td>Usually required</td></tr>
+              <tr><td>Query embedding</td><td>Usually required</td><td>None</td><td>None</td></tr>
+              <tr><td>LLM during retrieval</td><td>Optional</td><td>Optional</td><td>Often required</td></tr>
+              <tr><td>Re-embedding after changes</td><td>Changed content</td><td>None</td><td>None</td></tr>
+              <tr><td>Query-time reasoning cost</td><td>Usually low</td><td>Low</td><td>Potentially higher</td></tr>
+              <tr><td>Generation cost</td><td>Required</td><td>Required</td><td>Required</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          <strong>Takeaway.</strong> Vectorless RAG can reduce infrastructure and indexing complexity, but reasoning-based Vectorless RAG can increase
+          per-query compute and latency. The AWS study similarly notes that tool-augmented approaches reduce vector-database maintenance but may
+          introduce latency and operational dependencies of their own.
+        </div>
+      </section>
+
+      <section id="efficiency">
+        <h2>⚡ 7. Efficiency: which one is faster?</h2>
+        <p>
+          There is no universal winner. A dense ANN lookup is extremely suitable for high-volume, single-shot retrieval. A BM25 / full-text lookup is
+          also highly optimized and can be extremely efficient. But an agent that searches, inspects, searches again, opens a document, inspects a
+          section, and then answers has inherently more <em>sequential</em> work.
+        </p>
+        <p>
+          Its strength is not necessarily raw latency — it is <strong>better retrieval decisions for questions that require navigation and reasoning.</strong>
+          This creates a core engineering trade-off:
+        </p>
+        <div class="compare-grid">
+          <div class="compare-col agent">
+            <h3>Traditional vector RAG</h3>
+            <ul>
+              <li>More indexing / storage infrastructure</li>
+              <li>Cheap retrieval-time computation</li>
+              <li>Great for high-QPS single-shot lookups</li>
+            </ul>
+          </div>
+          <div class="compare-col">
+            <h3>Agentic vectorless RAG</h3>
+            <ul>
+              <li>Less vector infrastructure</li>
+              <li>Potentially more retrieval-time reasoning</li>
+              <li>Great for navigation-heavy questions</li>
+            </ul>
+          </div>
+        </div>
+        <p>
+          Tree-based approaches partly compensate by keeping retrieved context focused. PageIndex deliberately lets an agent inspect the document
+          structure and request specific page ranges rather than loading the complete document.
+        </p>
+      </section>
+
+      <section id="storage">
+        <h2>🗄️ 8. Where should the documents be stored?</h2>
+        <p>
+          Vectorless RAG does <strong>not</strong> mean putting every source document directly inside an LLM. A good architecture separates the
+          source of truth from the retrieval index — the original document remains authoritative, and the index or tree stays rebuildable.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 05 — Source of truth vs rebuildable retrieval index</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+flowchart TB
+  O["Original Documents<br/>PDF · DOCX · HTML<br/>object / file storage"]
+  O --> P["Parsing Layer<br/>text · page · title<br/>sections · metadata"]
+  P --> SI["Search Index<br/>BM25 / FTS"]
+  P --> DT["Document Tree<br/>JSON / JSONB"]
+  SI --> RA["Retrieval Agent"]
+  DT --> RA
+  RA --> L["LLM"]
+
+  style O fill:#f8fafc,stroke:#64748b,color:#334155
+  style P fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style SI fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style DT fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style RA fill:#eff6ff,stroke:#0369a1,color:#14201b
+            </pre>
+          </div>
+        </div>
+
+        <ul>
+          <li><strong>Prototype:</strong> a <code>./documents/</code> folder of Markdown/text files plus a single <code>knowledge.db</code> (SQLite FTS5).</li>
+          <li><strong>Production on PostgreSQL:</strong> parsed text + metadata with <code>tsvector</code>, accelerated by a GIN index — a preferred index type for text search.</li>
+          <li><strong>Search-heavy systems:</strong> OpenSearch / Elasticsearch-style BM25 infrastructure (BM25 is OpenSearch's default similarity).</li>
+          <li><strong>PageIndex-style:</strong> represent the hierarchy as JSON nodes, exposing metadata, structure, and page-level content separately.</li>
+        </ul>
+
+        <pre><code>{
+  "title": "Risk Factors",
+  "node_id": "0042",
+  "start_page": 36,
+  "end_page": 52,
+  "summary": "Principal operating and financial risks...",
+  "children": []
+}</code></pre>
+      </section>
+
+      <section id="minimal">
+        <h2>🛠️ 9. A minimal Vectorless RAG implementation</h2>
+        <p>
+          We can build a surprisingly useful prototype with just <strong>Python + SQLite FTS5 + the OpenAI API</strong> — no embedding model, no
+          vector database, and no cosine similarity. Create a <code>documents</code> directory of <code>.txt</code>/<code>.md</code> files, install
+          the client with <code>pip install openai</code>, and run the pipeline below.
+        </p>
+
+        <pre><code>import os
+import re
+import sqlite3
+from pathlib import Path
+
+from openai import OpenAI
+
+DB_PATH = "knowledge.db"
+DOCS_PATH = Path("./documents")
+
+client = OpenAI()
+
+# 1. Create a full-text search index
+def create_index():
+    db = sqlite3.connect(DB_PATH)
+    db.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS docs
+        USING fts5(
+            path UNINDEXED,
+            section,
+            content,
+            tokenize='porter'
+        )
+    """)
+    db.commit()
+    return db
+
+# 2. Split documents by Markdown headings
+def split_document(text):
+    sections = []
+    current_title = "Document"
+    current_text = []
+    for line in text.splitlines():
+        if line.startswith("#"):
+            if current_text:
+                sections.append((current_title, "\n".join(current_text)))
+            current_title = line.lstrip("#").strip()
+            current_text = []
+        else:
+            current_text.append(line)
+    if current_text:
+        sections.append((current_title, "\n".join(current_text)))
+    return sections
+
+# 3. Index documents
+def ingest(db):
+    db.execute("DELETE FROM docs")
+    for path in DOCS_PATH.glob("*"):
+        if path.suffix.lower() not in {".txt", ".md"}:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for section, content in split_document(text):
+            db.execute(
+                "INSERT INTO docs(path, section, content) VALUES (?, ?, ?)",
+                (str(path), section, content),
+            )
+    db.commit()
+
+# 4. Convert a user question into an FTS query
+def build_search_query(question):
+    words = re.findall(r"[A-Za-z0-9_]+", question.lower())
+    words = [word for word in words if len(word) > 2]
+    return " OR ".join(words[:15])  # OR improves recall
+
+# 5. Retrieve relevant sections
+def search(db, question, limit=6):
+    query = build_search_query(question)
+    rows = db.execute(
+        """
+        SELECT path, section, content, bm25(docs) AS score
+        FROM docs
+        WHERE docs MATCH ?
+        ORDER BY score
+        LIMIT ?
+        """,
+        (query, limit),
+    ).fetchall()
+    return rows
+
+# 6. Ask the LLM using retrieved evidence
+def answer_question(db, question):
+    results = search(db, question)
+    if not results:
+        return "No relevant evidence was found."
+
+    context_parts = []
+    for path, section, content, score in results:
+        context_parts.append(f"SOURCE: {path}\nSECTION: {section}\n\n{content}")
+    context = "\n\n---\n\n".join(context_parts)
+
+    prompt = f"""
+Answer the question using ONLY the supplied evidence.
+If the evidence is insufficient, say so.
+Cite the source file and section used in the answer.
+
+QUESTION:
+{question}
+
+EVIDENCE:
+{context}
+"""
+    response = client.responses.create(model="gpt-5-mini", input=prompt)
+    return response.output_text
+
+if __name__ == "__main__":
+    db = create_index()
+    ingest(db)
+    question = input("Question: ")
+    print(answer_question(db, question))</code></pre>
+
+        <p>The pipeline is now Documents → SQLite FTS index → BM25-style lexical retrieval → top sections → LLM. No embeddings are generated.</p>
+      </section>
+
+      <section id="agentic">
+        <h2>🤖 10. Making the example more powerful</h2>
+        <p>
+          The simple implementation struggles with synonyms. Ask <em>“Can employees work remotely?”</em> when the document says
+          <em>“Associates may perform duties away from their assigned office three days per week,”</em> and a lexical search may miss it. The next
+          step is <strong>agentic query rewriting</strong>: before searching, ask a small model to expand the query into terms like
+          <code>remote work</code>, <code>work from home</code>, <code>away from office</code>, <code>offsite work</code>. Search all of them, inspect
+          the results, and search again if the evidence is weak.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 06 — Agentic search plan with an evidence gate</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+flowchart TB
+  U["User question"] --> P["LLM creates search plan"]
+  P --> S["BM25 / SQL / regex search"]
+  S --> I["Inspect evidence"]
+  I --> G{"Enough evidence?"}
+  G -->|"Yes"| A["Answer"]
+  G -->|"No"| P
+
+  style P fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style S fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style G fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style A fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+        <p>This is much closer to the approach evaluated in the AWS keyword-search research.</p>
+      </section>
+
+      <section id="pageindex">
+        <h2>🌲 11. PageIndex: a more advanced example</h2>
+        <p>
+          Instead of a lexical index, PageIndex converts long documents into hierarchical structures. Its open-source README shows PDF indexing with
+          <code>python3 run_pageindex.py --pdf_path /path/to/document.pdf</code>, plus a faster <code>--flash</code> preview path. Flash mode
+          determines document structure heuristically without an LLM, while an LLM is still used when generating node summaries.
+        </p>
+        <p>The repository's end-to-end agentic example gives an agent three important tools:</p>
+        <ul>
+          <li><code>get_document()</code></li>
+          <li><code>get_document_structure()</code></li>
+          <li><code>get_page_content()</code></li>
+        </ul>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 07 — PageIndex agent: inspect structure, then fetch pages</p>
+          <div class="diagram-frame diagram-frame--light">
+            <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant Ag as Retrieval Agent
+  participant PI as PageIndex Tools
+  participant L as LLM
+
+  U->>Ag: question
+  Ag->>PI: get_document_structure()
+  PI-->>Ag: hierarchical tree (sections + pages)
+  Ag->>Ag: reason about relevant page range
+  Ag->>PI: get_page_content(range)
+  PI-->>Ag: focused pages
+  Ag->>L: answer with focused evidence
+  L-->>U: cited answer
+            </pre>
+          </div>
+        </div>
+        <p>The agent first inspects the hierarchy, decides which page range is relevant, retrieves those pages, and then answers — a useful mental model for sophisticated Vectorless RAG.</p>
+      </section>
+
+      <section id="comparison">
+        <h2>⚖️ 12. Traditional RAG vs Vectorless RAG</h2>
+        <div class="api-table-wrap">
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>Dimension</th>
+                <th>Traditional Vector RAG</th>
+                <th>Vectorless RAG</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Retrieval basis</td><td>Semantic similarity</td><td>Keywords, structure, logic, reasoning</td></tr>
+              <tr><td>Embeddings</td><td>Yes</td><td>No</td></tr>
+              <tr><td>Vector DB</td><td>Usually</td><td>No</td></tr>
+              <tr><td>Exact IDs / numbers</td><td>Can be imperfect</td><td>Excellent</td></tr>
+              <tr><td>Semantic paraphrases</td><td>Excellent</td><td>Depends on agent / search</td></tr>
+              <tr><td>Long structured documents</td><td>Chunking can lose hierarchy</td><td>Often a strong fit</td></tr>
+              <tr><td>Frequent content changes</td><td>Re-embedding required</td><td>Usually easier</td></tr>
+              <tr><td>Retrieval latency</td><td>Usually very low</td><td>Lexical low; agentic higher</td></tr>
+              <tr><td>Retrieval explainability</td><td>Similarity score</td><td>Search terms / sections / pages</td></tr>
+              <tr><td>Infrastructure</td><td>Embedding + vector infra</td><td>Search / tree infra</td></tr>
+              <tr><td>Query-time reasoning</td><td>Optional</td><td>Often important</td></tr>
+              <tr><td>Best use</td><td>Broad semantic retrieval</td><td>Precise / structured retrieval</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="lesson">
+        <h2>🎯 13. The most important architectural lesson</h2>
+        <p>
+          The real lesson from Vectorless RAG is not that vector databases are obsolete. It is that we spent several years treating <em>RAG</em> as
+          though it meant <em>chunking + embeddings + vector database</em>. It does not. RAG only requires that we retrieve useful external evidence
+          before generation — and the retriever could be vector search, BM25, SQL, metadata, graph traversal, document hierarchy, an API lookup,
+          regex, filesystem search, web search, or an agent combining several of them.
+        </p>
+        <div class="callout">
+          <strong>Retrieval should match the shape of the information.</strong> Millions of short, loosely structured documents with fuzzy questions →
+          vectors. Structured 200-page reports, exact identifiers, fast-changing ops docs, code, logs, contracts → Vectorless RAG. Both kinds of
+          question → hybrid retrieval.
+        </div>
+
+        <h3>Final recommendation</h3>
+        <p>
+          Do not start a RAG project by asking <em>“Which vector database should we use?”</em> Start with representative questions and ask:
+          <strong>“What information would a human need to retrieve to answer these, and how would the human find it?”</strong>
+        </p>
+        <div class="api-table-wrap">
+          <table class="api-table">
+            <thead>
+              <tr><th>If a human would…</th><th>Use</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>“Find documents discussing the same concept”</td><td>Vectors</td></tr>
+              <tr><td>“Find this exact identifier or phrase”</td><td>Lexical search</td></tr>
+              <tr><td>“Open the relevant chapter and inspect related sections”</td><td>Hierarchical / agentic retrieval</td></tr>
+              <tr><td>“Query these structured facts”</td><td>SQL</td></tr>
+              <tr><td>Ask all of the above</td><td>Combine retrieval strategies</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          That, more than eliminating vector databases, is why Vectorless RAG matters. It moves RAG architecture away from
+          <strong>similarity-first retrieval</strong> and toward <strong>relevance-first retrieval</strong>.
+        </p>
+
+        <p style="margin-top: 2.5rem;">
+          <a class="btn btn-ghost" href="../../../topics/ai/">← Back to topic</a>
+          <a class="btn btn-ghost" href="../../../" style="margin-left:0.5rem">Home</a>
+        </p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <div class="footer-brand">Tech Blog by Dip</div>
+        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span></p>
+      </div>
+      <p class="footer-copy">Deployed on GitHub Pages</p>
+    </div>
+  </footer>
+
+  <script src="../../../assets/js/main.js"></script>
+</body>
+</html>

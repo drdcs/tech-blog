@@ -58,7 +58,34 @@
 
       <article class="featured reveal">
         <div>
-          <p class="featured-meta">🤖 AI · Tutorial · 32 min read · Aug 2026</p>
+          <p class="featured-meta">� AI · Retrieval · 22 min read · Aug 2026</p>
+          <h2><a href="topics/ai/all-about-vectorless-rag/">All About Vectorless RAG</a></h2>
+          <p class="featured-lede">
+            Do we really need a vector database for RAG? Lexical search, hierarchical trees, agentic navigation, the real cost picture, and how to match the retriever to the shape of your information.
+          </p>
+          <a class="btn btn-ghost" href="topics/ai/all-about-vectorless-rag/">Open the essay 🔍</a>
+        </div>
+        <div class="diagram-preview" aria-hidden="true">
+          <svg viewBox="0 0 520 280" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="24" y="112" width="96" height="52" rx="2" stroke="#0f766e" stroke-width="1.5" fill="rgba(15,118,110,0.06)"/>
+            <text x="72" y="143" text-anchor="middle" fill="#1a1d21" font-family="JetBrains Mono, monospace" font-size="11">Documents</text>
+            <path class="flow-dash" d="M120 138 H176" stroke="#0f766e" stroke-width="1.5"/>
+            <rect class="node-pulse" x="176" y="100" width="128" height="76" rx="2" stroke="#2563eb" stroke-width="1.5" fill="rgba(37,99,235,0.06)"/>
+            <text x="240" y="128" text-anchor="middle" fill="#1a1d21" font-family="JetBrains Mono, monospace" font-size="11">BM25 / Tree</text>
+            <text x="240" y="148" text-anchor="middle" fill="#6b7280" font-family="JetBrains Mono, monospace" font-size="10">no embeddings</text>
+            <path class="flow-dash" d="M304 138 H356" stroke="#2563eb" stroke-width="1.5"/>
+            <rect class="node-pulse" x="356" y="112" width="104" height="52" rx="2" stroke="#0f766e" stroke-width="1.5" fill="rgba(15,118,110,0.06)"/>
+            <text x="408" y="143" text-anchor="middle" fill="#1a1d21" font-family="JetBrains Mono, monospace" font-size="11">Agent</text>
+            <path class="flow-dash" d="M408 164 V200" stroke="#94a3b8" stroke-width="1.5"/>
+            <rect x="318" y="200" width="180" height="48" rx="2" stroke="#94a3b8" stroke-width="1.5" fill="#f8fafc"/>
+            <text x="408" y="229" text-anchor="middle" fill="#3d4450" font-family="JetBrains Mono, monospace" font-size="10">LLM · relevance-first</text>
+          </svg>
+        </div>
+      </article>
+
+      <article class="featured reveal" style="border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 2rem;">
+        <div>
+          <p class="featured-meta">�🤖 AI · Tutorial · 32 min read · Aug 2026</p>
           <h2><a href="topics/ai/build-adr-copilot-mcp/">Build ADR Copilot MCP for VS Code</a></h2>
           <p class="featured-lede">
             Build a TRACE ledger MCP server from scratch with Python FastMCP — architecture decisions as agent-native tools, resources, and drift-aware context for Copilot Agent mode.
