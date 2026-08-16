@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Thinking in Flink (and When Spark Is Enough) — Tech Blog by Dip</title>
+  <meta name="description" content="An informal, Flink-leaning field guide to Apache Flink vs Spark Structured Streaming — processing model, watermarks, state, backpressure, checkpoints, replay, late events, skew, and the production scars that come with each." />
+  <meta name="theme-color" content="#f5f7f6" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../../assets/css/styles.css" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      securityLevel: "loose",
+      flowchart: {
+        curve: "basis",
+        padding: 16,
+        htmlLabels: true,
+        nodeSpacing: 40,
+        rankSpacing: 50
+      },
+      sequence: {
+        actorMargin: 48,
+        mirrorActors: false,
+        bottomMarginAdjust: 8,
+        messageMargin: 40
+      },
+      themeVariables: {
+        darkMode: false,
+        background: "#ffffff",
+        primaryColor: "#ecfdf8",
+        primaryTextColor: "#14201b",
+        primaryBorderColor: "#0f766e",
+        secondaryColor: "#eff6ff",
+        secondaryTextColor: "#14201b",
+        secondaryBorderColor: "#0369a1",
+        tertiaryColor: "#f8fafc",
+        tertiaryTextColor: "#334155",
+        tertiaryBorderColor: "#64748b",
+        lineColor: "#5c6f66",
+        textColor: "#2a3a33",
+        mainBkg: "#ecfdf8",
+        nodeBorder: "#0f766e",
+        clusterBkg: "#f8fafc",
+        clusterBorder: "#cbd5e1",
+        titleColor: "#14201b",
+        actorBkg: "#ecfdf8",
+        actorBorder: "#0f766e",
+        actorTextColor: "#14201b",
+        actorLineColor: "#94a3b8",
+        signalColor: "#2a3a33",
+        signalTextColor: "#14201b",
+        labelBoxBkgColor: "#ffffff",
+        labelBoxBorderColor: "#0f766e",
+        labelTextColor: "#14201b",
+        loopTextColor: "#0369a1",
+        noteBkgColor: "#eff6ff",
+        noteTextColor: "#14201b",
+        noteBorderColor: "#0369a1",
+        activationBkgColor: "rgba(15,118,110,0.12)",
+        activationBorderColor: "#0f766e",
+        sequenceNumberColor: "#ffffff"
+      }
+    });
+
+    const run = async () => {
+      const nodes = document.querySelectorAll(".mermaid");
+      await mermaid.run({ nodes });
+      document.querySelectorAll(".diagram-frame svg .edgePath path, .diagram-frame svg .flowchart-link").forEach((path, i) => {
+        path.style.strokeDasharray = "8 6";
+        path.style.animation = `dash-flow ${1.4 + (i % 3) * 0.2}s linear infinite`;
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run);
+    } else {
+      run();
+    }
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="../../../" aria-label="Tech Blog by Dip home">
+        <span class="brand-mark">Tech Blog <span class="brand-emoji" aria-hidden="true">✦</span></span>
+        <span class="brand-tag">by Dip</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+      <ul class="nav-links">
+        <li><a href="../../../">Home</a></li>
+        <li><a href="../../../#topics">Topics</a></li>
+        <li><a href="../../../topics/ai/">AI</a></li>
+        <li><a href="../../../topics/data/" aria-current="page">Data</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <header class="article-hero">
+      <div class="prose-wrap">
+        <div class="article-hero-emoji" aria-hidden="true">⚡ 🌊 🧠</div>
+        <div class="article-meta">
+          <span class="pill">📊 Data Platforms</span>
+          <span>🌊 Streaming</span>
+          <span>⏱️ 18 min read</span>
+          <span>📅 Aug 2026</span>
+        </div>
+        <h1 class="article-title">Thinking in Flink (and When Spark Is Enough)</h1>
+        <p class="article-dek">
+          A plain-English take on Apache Flink vs Spark Structured Streaming. Not a feature checklist — just the simple mental models I use
+          when a stream is driving live app state, and the real-world headaches each engine brings.
+        </p>
+      </div>
+    </header>
+
+    <article class="article-body prose-wrap">
+      <nav class="toc" aria-label="Table of contents">
+        <h2>📑 On this page</h2>
+        <ol>
+          <li><a href="#defs">💬 Introduction</a></li>
+          <li><a href="#picture">🖼️ The picture in my head</a></li>
+          <li><a href="#processing">🔁 Processing model</a></li>
+          <li><a href="#watermarks">⏱️ Watermarks &amp; event time</a></li>
+          <li><a href="#state">🧠 State management</a></li>
+          <li><a href="#backpressure">🚰 Backpressure</a></li>
+          <li><a href="#checkpoints">💾 Checkpointing &amp; recovery</a></li>
+          <li><a href="#replay">🔂 Replay &amp; exactly-once</a></li>
+          <li><a href="#late">🐢 Late events</a></li>
+          <li><a href="#skew">🔥 Hot keys &amp; skew</a></li>
+          <li><a href="#ops">🛠️ Operational difficulty</a></li>
+          <li><a href="#when">🧭 When I'd use each</a></li>
+        </ol>
+      </nav>
+
+      <section id="defs">
+        <h2>💬 1. Introduction</h2>
+        <p>
+          Before the head-to-head, here's each engine in one sentence:
+        </p>
+        <div class="callout">
+          <strong>Spark Structured Streaming.</strong> It treats a live stream like a table that keeps growing, and runs your query over and over on small batches of new data.
+        </div>
+        <div class="callout">
+          <strong>Apache Flink.</strong> It's built for streaming from the ground up — each record flows through the pipeline the moment it shows up, with no waiting for a batch.
+        </div>
+        <p>
+          Both are great tools. Below I walk through the same ten topics for each one. Since the main reason I reach for Flink is how it behaves
+          <em>in production</em>, I've put the common headaches right in the Flink column instead of hiding them.
+        </p>
+        <p>
+          If you came here from <a href="../thin-pipe-kafka-bigquery/">Consuming Streaming Data in BigQuery at Scale</a>, this is the flip side.
+          That post said you can skip a streaming engine for simple append-only loads. This one is about the jobs where you actually want one.
+        </p>
+      </section>
+
+      <section id="picture">
+        <h2>🖼️ 2. The picture in my head</h2>
+        <p>
+          The setup I keep coming back to is <strong>Kafka → Flink → a store that's always up to date</strong> (Bigtable, for me).
+          Events come in, Flink groups them by key and by time window, a <em>watermark</em> moves time forward, windows fire, and the results get written to
+          the store as they change. The picture below shows the full flow, what's happening inside Flink, and the hard parts teams hit in production.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 01 — Kafka → Flink → Bigtable: the flow, the internals, and the production pain points</p>
+          <div class="diagram-frame diagram-frame--wide">
+            <img
+              src="assets/flink-kafka-bigtable.png"
+              alt="Animated view of a Flink streaming pipeline from Kafka to Bigtable: events produced, Flink consumes and windows them, watermarks advance, windows trigger, Flink emits upserts, Bigtable applies them and acks. Below: Flink internals (JobManager, TaskManagers, state backends, checkpointing, fault tolerance) and a list of hard production problems — state growth, backpressure, watermarks and late data, checkpoint latency, skewed keys, exactly-once sinks, and operational complexity."
+              loading="lazy"
+              style="width:100%;height:auto;border-radius:8px;display:block"
+            />
+          </div>
+        </div>
+
+        <p>
+          The next sections walk through that picture one topic at a time, showing how Spark and Flink each handle it.
+        </p>
+      </section>
+
+      <section id="processing">
+        <h2>🔁 3. Processing model</h2>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Spark Structured Streaming</h3>
+            <ul>
+              <li>Think of it as <strong>micro-batch</strong>: it collects events into small batches and processes them one batch after another.</li>
+              <li>Your delay depends on how often batches run and how long each one takes.</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Apache Flink</h3>
+            <ul>
+              <li>It runs all the time as a <strong>live pipeline</strong>.</li>
+              <li>Records move through as they arrive — nothing waits for a batch to close.</li>
+              <li>Latency is lower and steadier, but you're always running (and paying for) a live job.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 02 — Micro-batch vs continuous operators</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart LR
+  S1["Spark<br/>stream"] --> B["Micro-batches<br/>t0 · t1 · t2"] --> SinkS["Sink"]
+  F1["Flink<br/>source"] --> O["keyBy · window · upsert"] --> SinkF["Sink"]
+
+  style S1 fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style B fill:#f8fafc,stroke:#64748b,color:#334155
+  style SinkS fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style F1 fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style O fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style SinkF fill:#ecfdf8,stroke:#0f766e,color:#14201b
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="watermarks">
+        <h2>⏱️ 4. Watermarks &amp; event time</h2>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Spark Structured Streaming</h3>
+            <ul>
+              <li>Watermarks are tied to how far each batch/query has gotten.</li>
+              <li>So I usually think about late data at <strong>batch edges</strong>.</li>
+              <li>Works well for normal “watermark + aggregate” jobs.</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Apache Flink</h3>
+            <ul>
+              <li>Watermarks flow through the whole pipeline and directly drive <strong>time-based windows and timers</strong>.</li>
+              <li>That gives you much finer control when data arrives out of order.</li>
+              <li><em>Watch out:</em> if a source goes quiet or is set up wrong, the watermark stops moving and windows <strong>never fire</strong> — one silent partition can freeze time for everything downstream.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="state">
+        <h2>🧠 5. State management</h2>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Spark Structured Streaming</h3>
+            <ul>
+              <li>Operators can keep state across batches.</li>
+              <li>It works well, especially for jobs that do a lot of aggregation.</li>
+              <li>I tend to think about state as part of the query.</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Apache Flink</h3>
+            <ul>
+              <li>State is a core, built-in idea.</li>
+              <li>After <code>keyBy</code>, each task owns part of a distributed <strong>memory</strong>: keyed state, timers, checkpoints, and a place to store it all (the state backend).</li>
+              <li><em>Watch out:</em> if state keeps growing forever, it fills up disk/memory. Setting expiry (TTL) and cleanup isn't optional — it's essential.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 03 — After keyBy, each subtask owns a slice of the state machine</p>
+          <div class="diagram-frame">
+            <pre class="mermaid">
+flowchart TB
+  Src["Source (Kafka)"] --> Key["keyBy(customer_id)"]
+  Key --> T0["Subtask 0<br/>keyed state + timers"]
+  Key --> T1["Subtask 1<br/>keyed state + timers"]
+  Key --> T2["Subtask 2<br/>keyed state + timers"]
+  T0 --> CP["Checkpoint<br/>offsets + state + timers"]
+  T1 --> CP
+  T2 --> CP
+  CP --> Back["State backend<br/>RocksDB / heap"]
+
+  style Src fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style Key fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style T0 fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style T1 fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style T2 fill:#ecfdf8,stroke:#0f766e,color:#14201b
+  style CP fill:#eff6ff,stroke:#0369a1,color:#14201b
+  style Back fill:#f8fafc,stroke:#64748b,color:#334155
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="backpressure">
+        <h2>🚰 6. Backpressure</h2>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Spark Structured Streaming</h3>
+            <ul>
+              <li>My main question: <strong>“can each batch finish before the next ones pile up?”</strong></li>
+              <li>Slow batches directly add delay.</li>
+              <li>The batch is the thing I tune around.</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Apache Flink</h3>
+            <ul>
+              <li>Backpressure spreads back through the live pipeline.</li>
+              <li>You can see exactly <strong>which step</strong> is slow.</li>
+              <li>Really handy when Kafka, Bigtable, or another sink starts slowing down — the slow spot lights up.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="checkpoints">
+        <h2>💾 7. Checkpointing &amp; recovery</h2>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Spark Structured Streaming</h3>
+            <ul>
+              <li>Checkpoints track how far the query got and its state.</li>
+              <li>If it fails, it restarts and keeps going.</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Apache Flink</h3>
+            <ul>
+              <li>A checkpoint is a consistent snapshot of where you are in the source + all operator state + timers.</li>
+              <li>After a crash, Flink loads that snapshot and replays the records that came after it.</li>
+              <li><em>Watch out:</em> lots of state means slow checkpoints that can time out — a stuck checkpoint causes restarts and lost throughput at the worst moment.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="replay">
+        <h2>🔂 8. Replay &amp; exactly-once</h2>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Spark Structured Streaming</h3>
+            <ul>
+              <li>Its batch model makes exactly-once fairly easy for supported sinks.</li>
+              <li>External sinks still need to be set up correctly.</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Apache Flink</h3>
+            <ul>
+              <li>After recovery, Flink may <strong>replay Kafka events</strong>.</li>
+              <li>So I make the Bigtable writes <strong>idempotent</strong> — the same input always writes to the same row (stable row keys / timestamps).</li>
+              <li><em>The truth:</em> “exactly-once into an outside store” is really “at-least-once + safe repeated writes.” Get the row key wrong and replays double-count.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="late">
+        <h2>🐢 9. Late events</h2>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Spark Structured Streaming</h3>
+            <ul>
+              <li>Fine for normal watermark + aggregation jobs.</li>
+              <li>You handle late data at the query level.</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Apache Flink</h3>
+            <ul>
+              <li>This is where Flink really shines for me.</li>
+              <li>Watermarks, event-time timers, <strong>allowed lateness, late firings, and side outputs</strong> give you fine control.</li>
+              <li>Late data doesn't have to be thrown away — you can send it aside, re-run a window, or reconcile it later.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="skew">
+        <h2>🔥 10. Hot keys &amp; skew</h2>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Spark Structured Streaming</h3>
+            <ul>
+              <li>A skewed key can blow up state or slow down tasks/batches.</li>
+              <li>How you partition still matters a lot.</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Apache Flink</h3>
+            <ul>
+              <li>A hot <code>keyBy</code> value can overload one specific task.</li>
+              <li>That causes backpressure, slower checkpoints, and an obvious bottleneck in production.</li>
+              <li><em>Watch out:</em> one “celebrity” key (a huge customer, a viral device) can drag the whole job. Common fixes are pre-aggregating or “salting” the key to spread it out.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="ops">
+        <h2>🛠️ 11. Operational difficulty</h2>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>Spark Structured Streaming</h3>
+            <ul>
+              <li>Often easier if your team already runs Spark for ETL, SQL, and ML.</li>
+              <li>One platform can do both batch and streaming.</li>
+              <li>Fewer streaming-only settings to learn.</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>Apache Flink</h3>
+            <ul>
+              <li>More streaming-specific tuning: parallelism, checkpoints, state storage, idle watermarks, backpressure, restart settings, savepoints, and state growth.</li>
+              <li>You get more control, but there's more to operate.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>Side-by-side mental model.</strong> Spark: streaming that works like batch/dataframe code run over and over.
+          Flink: a live, always-on engine that reacts to each event and remembers state as it goes.
+        </div>
+      </section>
+
+      <section id="when">
+        <h2>🧭 12. When I'd use each</h2>
+        <div class="compare-grid">
+          <div class="compare-col">
+            <h3>I'd reach for Spark when…</h3>
+            <ul>
+              <li>Your work is mostly <strong>SQL, ETL, aggregations, and data engineering</strong>, and streaming is just one part of a bigger Spark setup.</li>
+              <li>A few seconds of delay is fine — you don't need sub-second.</li>
+              <li>Your team already knows Spark and wants batch + streaming on one platform.</li>
+              <li>You want an easy path from an existing Spark batch job into streaming.</li>
+            </ul>
+          </div>
+          <div class="compare-col agent">
+            <h3>I'd reach for Flink when…</h3>
+            <ul>
+              <li>The app is truly <strong>streaming-first</strong> — always on, not periodic batches.</li>
+              <li>You have tricky time logic: <strong>watermarks, timers, out-of-order data, sessions, late events</strong>.</li>
+              <li>You keep a lot of long-lived state per key — <code>customer_id</code>, <code>device_id</code>, <code>order_id</code>, <code>session_id</code>.</li>
+              <li>You need tight control over latency, backpressure, checkpoints, replay, and recovery.</li>
+              <li>The pipeline looks like <strong>Kafka → your logic → an always-updated Bigtable/online store</strong>.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>My quick rule.</strong> If it's mostly analytics/ETL that happens to read Kafka, I lean Spark.
+          If Kafka events are driving live app state in Bigtable — with watermarks, late data, replay, and low latency — I lean Flink.
+        </div>
+
+        <p>
+          Want to see this same idea at media scale? I point the same keyed-state, backpressure, and exactly-once tools at a video/image encoding farm in
+          <a href="../flink-video-encoding-pipeline/">Encoding at Scale: A Flink Pipeline for Video &amp; Image Processing</a>.
+        </p>
+
+        <p style="margin-top: 2.5rem;">
+          <a class="btn btn-ghost" href="../../../topics/data/">← Back to topic</a>
+          <a class="btn btn-ghost" href="../../../" style="margin-left:0.5rem">Home</a>
+        </p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <div class="footer-brand">Tech Blog by Dip</div>
+        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span></p>
+      </div>
+      <p class="footer-copy">Deployed on GitHub Pages</p>
+    </div>
+  </footer>
+
+  <script src="../../../assets/js/main.js"></script>
+</body>
+</html>

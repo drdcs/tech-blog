@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Encoding at Scale: A Flink Pipeline for Video &amp; Image Processing — Tech Blog by Dip</title>
+  <meta name="description" content="How a large streaming service turns one mezzanine master into thousands of renditions — chunked encoding, the bitrate ladder, per-shot optimization, packaging, and image variants — all orchestrated as a stateful Apache Flink fan-out pipeline." />
+  <meta name="theme-color" content="#f5f7f6" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../../assets/css/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="../../../" aria-label="Tech Blog by Dip home">
+        <span class="brand-mark">Tech Blog <span class="brand-emoji" aria-hidden="true">✦</span></span>
+        <span class="brand-tag">by Dip</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+      <ul class="nav-links">
+        <li><a href="../../../">Home</a></li>
+        <li><a href="../../../#topics">Topics</a></li>
+        <li><a href="../../../topics/ai/">AI</a></li>
+        <li><a href="../../../topics/data/" aria-current="page">Data</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <header class="article-hero">
+      <div class="prose-wrap">
+        <div class="article-hero-emoji" aria-hidden="true">🎬 ⚡ 🖼️</div>
+        <div class="article-meta">
+          <span class="pill">📊 Data Platforms</span>
+          <span>🎬 Media &amp; Streaming</span>
+          <span>⏱️ 22 min read</span>
+          <span>📅 Aug 2026</span>
+        </div>
+        <h1 class="article-title">Encoding at Scale: A Flink Pipeline for Video &amp; Image Processing</h1>
+        <p class="article-dek">
+          One high-quality master goes in. Thousands of renditions come out — every resolution, bitrate, codec, language, and device your catalog needs.
+          Here's how I'd wire that explosion as a stateful Flink fan-out pipeline, split by segment, quality, and a lot more.
+        </p>
+      </div>
+    </header>
+
+    <article class="article-body prose-wrap">
+      <nav class="toc" aria-label="Table of contents">
+        <h2>📑 On this page</h2>
+        <ol>
+          <li><a href="#thesis">💡 The thesis</a></li>
+          <li><a href="#problem">📈 One master, thousands of outputs</a></li>
+          <li><a href="#pipeline">🏗️ The pipeline, end to end</a></li>
+          <li><a href="#split">✂️ How we split the work</a></li>
+          <li><a href="#why-flink">⚡ Why Flink runs the fan-out</a></li>
+          <li><a href="#keyed">🔑 The keyed-state model</a></li>
+          <li><a href="#code">🧩 Operator DAG &amp; stitch code</a></li>
+          <li><a href="#images">🖼️ The image / artwork side</a></li>
+          <li><a href="#pain">🩹 Production pain points</a></li>
+          <li><a href="#closing">✨ Closing</a></li>
+        </ol>
+      </nav>
+
+      <section id="thesis">
+        <h2>💡 1. The thesis</h2>
+        <p>
+          When you press play on a large streaming service, the file you receive was never encoded once. Somewhere upstream, a single pristine
+          <strong>mezzanine master</strong> was shredded into small pieces, each piece encoded many times over — different resolutions, bitrates, codecs, audio tracks —
+          then reassembled, packaged, encrypted, and pushed to a CDN close to you.
+        </p>
+        <p>
+          That "encode a title" job is not one job. It's a <strong>fan-out</strong>: one input event expands into thousands of independent encode tasks,
+          all of which must finish, pass quality control, and be stitched back together before a title can ship. That shape — <em>fan out, track completion, reassemble</em> —
+          is exactly what a stateful stream processor is good at. This post wires it up as an <strong>Apache Flink</strong> pipeline.
+        </p>
+        <div class="callout">
+          <strong>Continues from <a href="../thinking-in-flink/">Thinking in Flink</a>.</strong> That piece was Kafka → stateful logic → Bigtable.
+          This one takes the same keyed state, backpressure, and exactly-once machinery and points it at an encoding farm. Same brain, louder workload.
+        </div>
+      </section>
+
+      <section id="problem">
+        <h2>📈 2. One master, thousands of outputs</h2>
+        <p>
+          Say a two-hour title arrives as a single mezzanine file. To serve every viewer well, you need a matrix of outputs, not a single MP4:
+        </p>
+        <ul>
+          <li>A <strong>bitrate ladder</strong> — maybe 8–12 rungs from a low-bandwidth mobile stream up to 4K HDR.</li>
+          <li>Multiple <strong>codecs</strong> — AVC for reach, HEVC and AV1 for efficiency on capable devices.</li>
+          <li>Several <strong>audio tracks</strong> and dozens of <strong>subtitle/caption</strong> languages.</li>
+          <li><strong>SDR and HDR</strong> variants, different frame rates, and device-specific packaging.</li>
+        </ul>
+        <p>
+          Multiply that out and a single title becomes thousands of encoded artifacts. Encoding the whole two hours serially, per rung, would take far too long,
+          so you <strong>chunk</strong> the master into short segments and encode them in parallel across a large farm — then the hard part becomes
+          <em>coordination</em>, not compression.
+        </p>
+        <div class="callout">
+          <strong>The real problem is bookkeeping.</strong> Compression is a solved, embarrassingly-parallel task. Knowing <em>which of the 12,000 chunk-renditions
+          for a title are done, which failed, and when the whole title is ready to package</em> is the distributed-systems problem. That's the part Flink owns.
+        </div>
+      </section>
+
+      <section id="pipeline">
+        <h2>🏗️ 3. The pipeline, end to end</h2>
+        <p>
+          Let me walk you through the whole journey before we zoom into any one piece. Picture a single master file landing at one end.
+          We ingest it, split it into short segments, then fan each segment out into every rendition we need. Each of those gets encoded,
+          quality-checked, and stitched back together per rendition. Then we package it into streaming formats, encrypt it, and push it out to the CDN.
+          One file goes in; thousands of ready-to-stream artifacts come out.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 01 — The dual pipeline: a video path and an image path, both Kafka-driven and orchestrated by a stateful Flink job</p>
+          <div class="diagram-frame diagram-frame--wide">
+            <img
+              src="asset/video-image-processing.png"
+              alt="Dual-pipeline architecture. A control plane of Metadata/Job Request, Apache Kafka event bus, Apache Flink orchestration, a metadata store, and monitoring feeds two data paths. Path A is a 10-stage video pipeline: content analysis, GOP-aligned chunking, rendition fan-out on the bitrate ladder, parallel encoding, VMAF and technical QC, completion join, packaging to HLS/DASH/CMAF, DRM encryption, object storage, and CDN delivery. Path B is a 9-stage image pipeline: frame extraction, focal-point smart crop, resize and aspect-ratio fan-out, image encoding to AVIF/WebP/JPEG, localization, personalization and A/B variants, image QC, storage, and CDN delivery. Clients include smart TV, mobile, web, tablet, and game console."
+              loading="lazy"
+              style="width:100%;height:auto;border-radius:8px;display:block"
+            />
+          </div>
+        </div>
+
+        <p>
+          So here's how I'd read this with you, top to bottom. That dashed line across the top is the control plane — Kafka to Flink to the
+          metadata store to monitoring. Notice it never touches a single media byte; all it shuffles around is <strong>events</strong>. Below it
+          are the two solid lanes, and the important bit is that they're completely independent: the video path (A) and the image path (B) scale
+          on their own and fail on their own, and the only thing they share is the event bus. That's on purpose — a 4K encode getting stuck should
+          never hold up a thumbnail refresh.
+        </p>
+
+        <p>
+          And where does Flink actually sit in all this? Right across the middle. Every stage you see is a Flink operator (or a quick call out to
+          the encode farm), and the arrows between them aren't carrying video — they're carrying tiny status notes like “segment 41 of title T is
+          ready” or “the 720p/AV1 version of segment 41 just passed QC.” The heavy media never rides through Flink at all; it lives in object storage.
+          Flink only moves the <strong>metadata and the state</strong>.
+        </p>
+      </section>
+
+      <section id="split">
+        <h2>✂️ 4. How we split the work</h2>
+        <p>
+          Now the fun question — the one I'd actually whiteboard with you: when we “fan out,” what are we fanning out <em>along</em>? Segment and
+          quality are the two everyone names first. But a real encoding pipeline splits along a lot more than that, and each of these axes ends up
+          baked into the key that names one single unit of work. Here's the full list I keep in my head:
+        </p>
+
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th>Split axis</th>
+              <th>What it means</th>
+              <th>Why it exists</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Segment</td>
+              <td>Short GOP- or shot-aligned chunks of the timeline</td>
+              <td>Parallelism — encode a 2-hour title in the time of one chunk</td>
+            </tr>
+            <tr>
+              <td>Quality (bitrate)</td>
+              <td>Each rung of the bitrate ladder</td>
+              <td>Adaptive streaming picks a rung to match bandwidth</td>
+            </tr>
+            <tr>
+              <td>Resolution</td>
+              <td>235p → 4K spatial sizes</td>
+              <td>Serve tiny screens and living-room 4K from one catalog</td>
+            </tr>
+            <tr>
+              <td>Codec / profile</td>
+              <td>AVC, HEVC, VP9, AV1 and their profiles</td>
+              <td>Reach on old devices, efficiency on new ones</td>
+            </tr>
+            <tr>
+              <td>Scene complexity</td>
+              <td>Per-shot / per-title bitrate assigned by content</td>
+              <td>Spend bits where the picture is hard, save them where it's flat</td>
+            </tr>
+            <tr>
+              <td>Dynamic range</td>
+              <td>SDR vs HDR (HDR10, Dolby Vision) &amp; color space</td>
+              <td>Correct tone/color per display capability</td>
+            </tr>
+            <tr>
+              <td>Frame rate</td>
+              <td>24 / 30 / 50 / 60 fps variants</td>
+              <td>Source cadence and high-motion / sports content</td>
+            </tr>
+            <tr>
+              <td>Audio track</td>
+              <td>Stereo, 5.1, Atmos; multiple languages</td>
+              <td>Localization and premium sound</td>
+            </tr>
+            <tr>
+              <td>Subtitle / caption</td>
+              <td>Dozens of languages, forced narratives, SDH</td>
+              <td>Accessibility and global catalogs</td>
+            </tr>
+            <tr>
+              <td>Packaging / device</td>
+              <td>CMAF, HLS, DASH per device family</td>
+              <td>Different players want different manifests/containers</td>
+            </tr>
+            <tr>
+              <td>DRM</td>
+              <td>Widevine / FairPlay / PlayReady</td>
+              <td>Studio content protection per platform</td>
+            </tr>
+            <tr>
+              <td>Region / CDN</td>
+              <td>Which edges get which renditions first</td>
+              <td>Latency and licensing windows by territory</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          If I had to pick a favorite, it's <strong>scene complexity</strong>. Instead of slapping the same bitrate ladder on every title, you look at the
+          actual content — sometimes shot by shot — and spend bits based on how hard each scene is to compress. A quiet talking-head interview and a
+          fireworks finale should never get the same treatment, and that's exactly why you hear “per-title” and “per-shot” optimization come up so often.
+          The nice part: that analysis is just one more Flink operator up front, feeding its numbers into the fan-out.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 02 — The full platform blueprint: every video/image stage plus the Flink topology variants (per-shot, per-title, QC loop, packaging)</p>
+          <div class="diagram-frame diagram-frame--wide">
+            <img
+              src="asset/topology-2.png"
+              alt="A platform blueprint for video and image processing at scale on Apache Flink. It lays out the video processing path and image processing path stage by stage, a Flink topology view with the operator DAG, workers, slots and executors, state and checkpointing, and failure/retry/reprocessing, plus several topology variants: per-shot adaptive encoding, per-title orchestration, a QC and reprocessing loop, a manifest and packaging workflow, and the image processing pipeline."
+              loading="lazy"
+              style="width:100%;height:auto;border-radius:8px;display:block"
+            />
+          </div>
+        </div>
+
+        <p>
+          This blueprint is where those axes stop being a table and turn into real jobs. And notice it isn't one giant DAG doing everything — it's a
+          whole <strong>family of topologies</strong> (per-shot adaptive, per-title orchestration, a QC-and-reprocessing loop, packaging) that all chat over
+          Kafka. Depending on how expensive an axis is, it might just be a partition key, a value we broadcast as config, or an entire sub-pipeline of its own.
+        </p>
+      </section>
+
+      <section id="why-flink">
+        <h2>⚡ 5. Why Flink runs the fan-out</h2>
+        <p>
+          You could orchestrate this with a workflow engine and a queue, and plenty of teams do. But the encoding problem has streaming-shaped requirements
+          that map cleanly onto the same Flink concepts from the previous essay:
+        </p>
+        <ul>
+          <li><strong>Keyed state</strong> — key by <code>(title, segment, rendition)</code>; each key tracks its own encode lifecycle and retries.</li>
+          <li><strong>Completion joins</strong> — Flink holds the running tally of "how many chunk-renditions of title T are done" and fires only when the set is complete.</li>
+          <li><strong>Watermarks as progress</strong> — a watermark meaning "the master is fully chunked" lets the assembler know no more segments are coming, so a rendition can finalize.</li>
+          <li><strong>Backpressure</strong> — when the encode farm saturates, backpressure propagates up the topology and you can see exactly where the queue is building.</li>
+          <li><strong>Exactly-once assembly</strong> — encode results may be replayed after failure, so the assembler and packager must be idempotent, keyed on deterministic chunk IDs.</li>
+        </ul>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 03 — The video path as a Flink topology: operator DAG, worker/slot runtime view, state &amp; checkpointing, and the reprocessing loop</p>
+          <div class="diagram-frame diagram-frame--wide">
+            <img
+              src="asset/flink-topology.png"
+              alt="The video processing path expressed as a Flink topology. It shows the logical operator DAG from Kafka source through keyed pre-processing, config broadcast, rendition fan-out, async encoding, keyed QC, keyed completion join, packaging, DRM and sinks; the runtime view of that DAG spread across TaskManager workers, slots and executors with per-operator parallelism; the state and checkpointing model on RocksDB; and the reprocessing loop where failed chunks flow through a side output to a dead-letter topic and back into the pipeline."
+              loading="lazy"
+              style="width:100%;height:auto;border-radius:8px;display:block"
+            />
+          </div>
+        </div>
+
+        <p>
+          This is the same five bullets above, drawn as a real job. Two things worth calling out: the parallelism is <strong>uneven on purpose</strong> —
+          the encode operator runs far wider than packaging or DRM because that's where the work is — and the <strong>side output → dead-letter → reprocess</strong>
+          loop is a first-class part of the graph, not an afterthought. Failures are just another stream.
+        </p>
+      </section>
+
+      <section id="keyed">
+        <h2>🔑 6. The keyed-state model</h2>
+        <p>
+          The heart of the pipeline is a single idea: every unit of work has a deterministic identity, and Flink keeps state per identity.
+          A natural composite key is:
+        </p>
+<pre><code>key = (title_id, segment_id, rendition)
+rendition = (resolution, bitrate_rung, codec, dynamic_range, frame_rate)</code></pre>
+        <p>
+          Keyed by that, each Flink subtask owns a slice of the work and answers questions locally: <em>is this chunk-rendition encoded? did it pass QC?
+          how many retries has it burned?</em> A second keying — by <code>(title_id, rendition)</code> — maintains a completion counter so the assembler
+          fires exactly once when every segment of a rendition is present. Deterministic keys are what make replays safe: re-processing the same chunk
+          overwrites the same state and republishes the same artifact, so at-least-once delivery behaves like exactly-once output.
+        </p>
+      </section>
+
+      <section id="code">
+        <h2>🧩 7. Operator DAG &amp; stitch code</h2>
+        <p>
+          The last image is the useful one for engineers: it zooms all the way in — the operator DAG, the job graph with per-operator parallelism, the cluster
+          layout (JobManager, TaskManagers, RocksDB-on-S3 state backend), the reprocessing DAG, and a compact <strong>DataStream API stitch</strong> that wires the whole
+          job together.
+        </p>
+
+        <div class="diagram-block">
+          <p class="diagram-caption">Fig 04 — Operator DAG, job-graph parallelism, cluster layout, and the DataStream stitch code</p>
+          <div class="diagram-frame diagram-frame--wide">
+            <img
+              src="asset/flink-topology-code.png"
+              alt="A detailed reference for the Flink video and image pipeline. It contains the high-level end-to-end pipeline from ingest through Kafka, Flink, RocksDB state on S3, object storage and CDN; the ten-stage video pipeline; the operator DAG with keyed process, broadcast config, fan-out map, async encode, keyed QC, keyed join, packaging, DRM and sinks; a job graph annotated with parallelism such as encode at 128 and QC and join at 64; the Flink cluster architecture; a reprocessing and error-handling DAG with a dead-letter topic; the image pipeline topology; the checkpointing and state model; a DataStream API stitch-code block; the Kafka topics events flow through; and the design principles."
+              loading="lazy"
+              style="width:100%;height:auto;border-radius:8px;display:block"
+            />
+          </div>
+        </div>
+
+        <p>
+          Below is that stitch code, cleaned up. It's the whole job in one read: source, enrich, broadcast config, fan out, encode via Async I/O, QC, join,
+          package, encrypt, sink — with exactly-once checkpointing to RocksDB on S3.
+        </p>
+<pre><code>StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+// Exactly-once checkpointing to a durable state backend (RocksDB on S3)
+env.enableCheckpointing(60_000, CheckpointingMode.EXACTLY_ONCE);
+env.getCheckpointConfig().setMinPauseBetweenCheckpoints(30_000);
+env.setStateBackend(new EmbeddedRocksDBStateBackend(true));
+env.getCheckpointConfig().setCheckpointStorage("s3://flink-checkpoints/video");
+
+// Encoding config (bitrate ladder, codecs, QC rules) broadcast to every task
+BroadcastStream&lt;EncodeConfig&gt; config = env
+    .fromSource(configSource, WatermarkStrategy.noWatermarks(), "encode-config")
+    .broadcast(CONFIG_DESCRIPTOR);
+
+DataStream&lt;Packaged&gt; published = env
+    .fromSource(kafkaVideoEvents,
+        WatermarkStrategy.&lt;IngestEvent&gt;forBoundedOutOfOrderness(Duration.ofSeconds(5))
+            .withTimestampAssigner((e, ts) -&gt; e.eventTimeMs()),
+        "video.events")
+    .keyBy(IngestEvent::titleId)
+    .process(new PreProcessFunction())      // enrich + dedup per title
+    .connect(config)
+    .process(new FanOutFunction())          // one chunk -&gt; N renditions
+    .keyBy(ChunkKey::of)
+    .process(new EncodingAsyncDispatch())   // Async I/O -&gt; encode farm
+    .keyBy(ChunkKey::of)
+    .process(new QualityCheckFunction())    // VMAF / sync / tech rules
+    .keyBy(RenditionKey::of)
+    .process(new CompletionJoinFunction())  // join all chunks per rendition
+    .process(new PackagingFunction())       // HLS / DASH / CMAF manifests
+    .process(new DrmEncryptFunction());     // Widevine / PlayReady / FairPlay
+
+published.sinkTo(s3Sink);                   // deterministic object paths
+published.sinkTo(cdnPublishSink);           // emit publish.cdn event
+
+env.execute("Flink Video Encoding Pipeline");</code></pre>
+        <p>
+          The completion join is where the bookkeeping lives — keyed by <code>(title, rendition)</code>, it tallies encoded-and-passed segments and fires
+          exactly once when the set is whole. Failed chunks leave through a side output to a dead-letter topic; a reprocess job re-encodes them and feeds
+          results back in.
+        </p>
+<pre><code>public class CompletionJoinFunction
+        extends KeyedProcessFunction&lt;RenditionKey, EncodeResult, RenditionReady&gt; {
+
+    private ValueState&lt;Integer&gt; expectedSegments;   // set when the master is chunked
+    private MapState&lt;Long, Boolean&gt; doneSegments;    // idempotent per-segment set
+
+    @Override
+    public void processElement(EncodeResult r, Context ctx, Collector&lt;RenditionReady&gt; out)
+            throws Exception {
+
+        if (!r.passedQc) {
+            ctx.output(QC_FAILURES, r);          // side output -&gt; dead-letter -&gt; reprocess
+            return;
+        }
+
+        doneSegments.put(r.segmentId, true);     // replay-safe: same id, same slot
+
+        int expected = expectedSegments.value() == null ? -1 : expectedSegments.value();
+        if (expected &gt; 0 &amp;&amp; size(doneSegments) == expected) {
+            out.collect(new RenditionReady(r.titleId, r.rendition)); // fire once
+        }
+    }
+}</code></pre>
+        <div class="callout">
+          <strong>Why the composite key matters.</strong> <code>keyBy((title, rendition))</code> is what lets Flink shard the completion bookkeeping across the cluster
+          and survive failures — the same trick as the hot-key discussion in <a href="../thinking-in-flink/#skew">Thinking in Flink</a>, except here a "hot key" is a
+          blockbuster title everyone re-encodes at once.
+        </div>
+      </section>
+
+      <section id="images">
+        <h2>🖼️ 8. The image / artwork side</h2>
+        <p>
+          The same fan-out shape runs for stills. Every poster, thumbnail, and hero image is generated in many variants from one source asset — and,
+          because artwork is personalized and A/B tested, the matrix is bigger than people expect.
+        </p>
+        <ul>
+          <li><strong>Size</strong> — grid thumbnails, detail-page heroes, TV-lane tiles.</li>
+          <li><strong>Aspect ratio &amp; crop</strong> — 16:9, 2:3, square, with <strong>focal-point</strong> aware cropping so faces survive.</li>
+          <li><strong>Format</strong> — AVIF and WebP for modern clients, JPEG as fallback.</li>
+          <li><strong>Quality</strong> — perceptual quality target per size to control bytes on the wire.</li>
+          <li><strong>Locale / overlay</strong> — localized title treatments, badges, maturity ratings baked in.</li>
+          <li><strong>A/B variant</strong> — multiple artwork candidates per title for engagement testing.</li>
+        </ul>
+
+        <div class="callout">
+          <strong>Same shape, smaller payload.</strong> Path B in Fig 01 is exactly this fan-out — one source still explodes into the
+          size × crop × format × locale × A/B matrix, keyed by <code>(asset_id, variant)</code>. Because images are cheap, this path runs as a
+          lower-latency lane of the same platform.
+        </div>
+        <p>
+          Images are lighter and faster than video, so this often runs as a lower-latency lane of the same platform — new asset event in,
+          keyed by <code>(asset_id, variant)</code>, fan out, generate, publish. Same pattern, smaller blast radius.
+        </p>
+      </section>
+
+      <section id="pain">
+        <h2>🩹 9. Production pain points</h2>
+        <p>
+          The scars here rhyme with the ones from <a href="../thinking-in-flink/">Thinking in Flink</a>, just wearing a media costume:
+        </p>
+        <ul>
+          <li><strong>Straggler chunks.</strong> A single complex segment (dense motion, grain) can take far longer than its neighbors and hold up an entire rendition's assembly. Timers + speculative retries keep the tail bounded.</li>
+          <li><strong>Encode-farm saturation.</strong> Launch a big catalog re-encode and the farm backs up; backpressure climbs the topology and checkpoints slow down. Admission control and per-title concurrency caps matter.</li>
+          <li><strong>Poison media.</strong> A malformed source or an unsupported codec path fails deterministically — retrying forever wastes the farm. Route it to a dead-letter / manual-review side output fast.</li>
+          <li><strong>Rendition explosion cost.</strong> Every new codec or ladder rung multiplies compute and storage across the whole catalog. Per-title/per-shot optimization exists partly to stop paying for bitrates nobody streams.</li>
+          <li><strong>QC rejects → re-encode loops.</strong> A VMAF miss sends a chunk back through, and without idempotent keys those loops double-write. Deterministic chunk IDs keep retries safe.</li>
+          <li><strong>Exactly-once at the sink.</strong> Just like Bigtable upserts, the packager/publisher must be idempotent — the pipeline is at-least-once, and deterministic artifact paths are what make the output look exactly-once.</li>
+        </ul>
+      </section>
+
+      <section id="closing">
+        <h2>✨ 10. Closing</h2>
+        <p>
+          Video and image delivery looks like a compression story, but at scale it's a <strong>coordination</strong> story: fan one master out along a dozen axes,
+          track completion across thousands of tasks, reassemble deterministically, and publish exactly-once to the edge. That's a stateful streaming problem,
+          and it's why the same Flink concepts — keyed state, watermarks, backpressure, idempotent sinks — keep showing up whether the payload is a Bigtable row
+          or a 4K HDR chunk.
+        </p>
+        <p>
+          If you want the mental models behind those concepts, start with <a href="../thinking-in-flink/">Thinking in Flink (and When Spark Is Enough)</a>.
+          This pipeline is just that brain, turned up to catalog scale.
+        </p>
+
+        <p style="margin-top: 2.5rem;">
+          <a class="btn btn-ghost" href="../../../topics/data/">← Back to topic</a>
+          <a class="btn btn-ghost" href="../../../" style="margin-left:0.5rem">Home</a>
+        </p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div>
+        <div class="footer-brand">Tech Blog by Dip</div>
+        <p class="footer-copy">Distributed systems · AI · Data · ML · <span data-year>2026</span></p>
+      </div>
+      <p class="footer-copy">Deployed on GitHub Pages</p>
+    </div>
+  </footer>
+
+  <script src="../../../assets/js/main.js"></script>
+</body>
+</html>

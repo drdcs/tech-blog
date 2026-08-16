@@ -166,6 +166,60 @@
 
       <article class="featured reveal" style="border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 2rem;">
         <div>
+          <p class="featured-meta">⚡ Data · Streaming · 18 min read · Aug 2026</p>
+          <h2><a href="topics/data/thinking-in-flink/">Thinking in Flink (and When Spark Is Enough)</a></h2>
+          <p class="featured-lede">
+            A Flink-leaning field guide to Flink vs Spark Structured Streaming — processing model, watermarks, state, backpressure, replay, and the production scars behind each.
+          </p>
+          <a class="btn btn-ghost" href="topics/data/thinking-in-flink/">Open the essay ⚡</a>
+        </div>
+        <div class="diagram-preview" aria-hidden="true">
+          <svg viewBox="0 0 520 280" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="24" y="112" width="88" height="52" rx="2" stroke="#0f766e" stroke-width="1.5" fill="rgba(15,118,110,0.06)"/>
+            <text x="68" y="143" text-anchor="middle" fill="#1a1d21" font-family="JetBrains Mono, monospace" font-size="12">Kafka</text>
+            <path class="flow-dash" d="M112 138 H168" stroke="#0f766e" stroke-width="1.5"/>
+            <rect class="node-pulse" x="168" y="100" width="120" height="76" rx="2" stroke="#2563eb" stroke-width="1.5" fill="rgba(37,99,235,0.06)"/>
+            <text x="228" y="132" text-anchor="middle" fill="#1a1d21" font-family="JetBrains Mono, monospace" font-size="12">Flink</text>
+            <text x="228" y="152" text-anchor="middle" fill="#6b7280" font-family="JetBrains Mono, monospace" font-size="10">keyBy · state</text>
+            <path class="flow-dash" d="M288 138 H340" stroke="#2563eb" stroke-width="1.5"/>
+            <rect x="340" y="112" width="150" height="52" rx="2" stroke="#94a3b8" stroke-width="1.5" fill="#f8fafc"/>
+            <text x="415" y="143" text-anchor="middle" fill="#3d4450" font-family="JetBrains Mono, monospace" font-size="11">Bigtable · upsert</text>
+          </svg>
+        </div>
+      </article>
+
+      <article class="featured reveal" style="border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 2rem;">
+        <div>
+          <p class="featured-meta">🎬 Data · Media · 22 min read · Aug 2026</p>
+          <h2><a href="topics/data/flink-video-encoding-pipeline/">Encoding at Scale: A Flink Pipeline for Video &amp; Image Processing</a></h2>
+          <p class="featured-lede">
+            One mezzanine master becomes thousands of renditions — chunked encoding, the bitrate ladder, per-shot optimization, and image variants — orchestrated as a stateful Flink fan-out.
+          </p>
+          <a class="btn btn-ghost" href="topics/data/flink-video-encoding-pipeline/">Open the essay 🎬</a>
+        </div>
+        <div class="diagram-preview" aria-hidden="true">
+          <svg viewBox="0 0 520 280" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="24" y="112" width="96" height="52" rx="2" stroke="#0f766e" stroke-width="1.5" fill="rgba(15,118,110,0.06)"/>
+            <text x="72" y="143" text-anchor="middle" fill="#1a1d21" font-family="JetBrains Mono, monospace" font-size="11">Master</text>
+            <path class="flow-dash" d="M120 138 H176" stroke="#0f766e" stroke-width="1.5"/>
+            <rect class="node-pulse" x="176" y="100" width="120" height="76" rx="2" stroke="#2563eb" stroke-width="1.5" fill="rgba(37,99,235,0.06)"/>
+            <text x="236" y="132" text-anchor="middle" fill="#1a1d21" font-family="JetBrains Mono, monospace" font-size="12">Flink fan-out</text>
+            <text x="236" y="152" text-anchor="middle" fill="#6b7280" font-family="JetBrains Mono, monospace" font-size="10">segment × rendition</text>
+            <path class="flow-dash" d="M296 120 H360" stroke="#2563eb" stroke-width="1.5"/>
+            <path class="flow-dash" d="M296 138 H360" stroke="#2563eb" stroke-width="1.5"/>
+            <path class="flow-dash" d="M296 156 H360" stroke="#2563eb" stroke-width="1.5"/>
+            <rect x="360" y="96" width="140" height="30" rx="2" stroke="#94a3b8" stroke-width="1.5" fill="#f8fafc"/>
+            <text x="430" y="116" text-anchor="middle" fill="#3d4450" font-family="JetBrains Mono, monospace" font-size="10">1080p · AV1</text>
+            <rect x="360" y="130" width="140" height="30" rx="2" stroke="#94a3b8" stroke-width="1.5" fill="#f8fafc"/>
+            <text x="430" y="150" text-anchor="middle" fill="#3d4450" font-family="JetBrains Mono, monospace" font-size="10">720p · HEVC</text>
+            <rect x="360" y="164" width="140" height="30" rx="2" stroke="#94a3b8" stroke-width="1.5" fill="#f8fafc"/>
+            <text x="430" y="184" text-anchor="middle" fill="#3d4450" font-family="JetBrains Mono, monospace" font-size="10">4K · HDR</text>
+          </svg>
+        </div>
+      </article>
+
+      <article class="featured reveal" style="border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 2rem;">
+        <div>
           <p class="featured-meta">🧠 AI · Architecture · 24 min read · Aug 2026</p>
           <h2><a href="topics/ai/mcp-vs-agents/">MCP, Agents &amp; Headless Architecture</a></h2>
           <p class="featured-lede">
